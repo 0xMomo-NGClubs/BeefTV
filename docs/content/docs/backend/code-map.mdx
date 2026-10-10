@@ -10,6 +10,10 @@ BeefTV 是单用户、本地优先的桌面应用。项目、画布、素材和�
 
 模型服务设置由 `web/src/pages/settings/model-service-editor.tsx` 管理添加和编辑草稿；`model-service-presets.ts` 依据已启用的协议插件填写初始配置。`model-connection-test.ts` 通过正常后端生成任务验证结果。`internal/workspace/provider_config.go` 持有配置版本、保存冲突和文件读写，`internal/localcrypto` 统一工作区凭据加解密格式。
 
+RunningHub 设置由 `web/src/pages/settings/runninghub-settings-pane.tsx` 管理，与普通模型渠道分开。参数读取经过 `handler/runninghub.go` 的本地身份和插件校验，再进入 `app/runninghub_management.go` 与 `provider/workflow`；画布选择由 `generation-workflow-execution.ts` 解析，生成沿用持久任务入口。参考素材经 `generation/media.go` 的归属校验与字节读取，再由 `provider/workflow/client.go` 用工作流 Key 上传并映射 `fileName`。本机 ComfyUI 服务尚未接通。
+
+正式视频节点在 `ModelPicker` 的附加分组中选择 RunningHub 条目，`canvas-workflow-controls.tsx` 将映射后的分辨率、比例、时长放进原有底栏，其余字段与素材检查放进参数弹层。`workflow-video-controls.ts` 提供供应商无关的字段识别、具体字段映射、摘要和默认值规则；设置页的 `workflow-video-controls-editor.tsx` 保存每个条目的映射与显示开关。`canvas-workflow-inputs.ts` 核对素材槽位和参数。工作流产物由 `provider/workflow` 保留为完整 `outputs` 数组，`taskdelivery` 逐项写入资源与媒体素材，`taskbinding` 核验资源并回填主输出及结果集合。前端 `generation-outputs.ts` 与 `canvas-generation-outputs.ts` 定义供应商无关的结果引用、主输出选择与展开规则，`canvas-generation-results.tsx` 提供预览和添加到画布操作。
+
 ```text
 Wails / local dev
   -> internal/bootstrap        组合根、数据库、HTTP 生命周期

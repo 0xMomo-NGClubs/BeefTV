@@ -9,7 +9,7 @@ import (
 )
 
 // FetchSettingsWorkflow loads settings-page workflow JSON. Empty prompt is a
-// valid empty schema, not a parse error. Payload code is not treated as failure.
+// valid empty schema, not a parse error, only after an upstream success.
 func (c *Client) FetchSettingsWorkflow(ctx context.Context, config Config, req FetchRequest) (map[string]any, error) {
 	exec := c.prepared()
 	if exec.Requests == nil {
@@ -27,9 +27,15 @@ func (c *Client) FetchSettingsWorkflow(ctx context.Context, config Config, req F
 	if err != nil {
 		return nil, fmt.Errorf("拉取 RunningHub 工作流参数失败：%w", err)
 	}
+	if code, valid := runningHubPayloadCode(response); valid && code != 0 {
+		return nil, fmt.Errorf("拉取 RunningHub 工作流参数失败：%s", runningHubFailureMessage(response))
+	}
 	data, _ := response["data"].(map[string]any)
 	if data == nil {
 		return nil, errors.New("RunningHub 工作流参数响应缺少 data")
+	}
+	if _, exists := data["prompt"]; !exists {
+		return nil, errors.New("RunningHub 工作流参数响应缺少 prompt")
 	}
 	workflowJSON, err := parseWorkflowPrompt(data["prompt"], false)
 	if err != nil {
@@ -41,7 +47,6 @@ func (c *Client) FetchSettingsWorkflow(ctx context.Context, config Config, req F
 		"title":        firstNonEmpty(req.Title, workflowID),
 		"fields":       CollectFields(workflowJSON, req.Capability),
 		"workflowJson": workflowJSON,
-		"raw":          response,
 	}, nil
 }
 
@@ -70,6 +75,11 @@ func parseWorkflowPrompt(raw any, required bool) (map[string]any, error) {
 		}
 	} else if prompt, ok := raw.(map[string]any); ok {
 		workflowJSON = prompt
+	} else if _, ok := raw.(string); !ok {
+		return nil, errors.New("RunningHub 工作流参数格式无效")
+	}
+	if workflowJSON == nil {
+		return nil, errors.New("RunningHub 工作流参数格式无效")
 	}
 	return workflowJSON, nil
 }

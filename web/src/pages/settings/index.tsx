@@ -1,5 +1,5 @@
 import { App, Button } from "antd";
-import { ArrowLeft, Bug, RadioTower } from "lucide-react";
+import { ArrowLeft, Bug, RadioTower, Workflow } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -8,11 +8,16 @@ import { useUserStore } from "@/stores/use-user-store";
 import { ChannelSettingsPane, channelValidationError, focusInvalidChannelField, isChannelReady } from "./channel-settings-pane";
 import { ModelDefaultGrid } from "./model-default-grid";
 import DiagnosticsPanel from "./diagnostics-panel";
+import { RunningHubSettingsPane } from "./runninghub-settings-pane";
+import { isRunningHubReady } from "@/lib/generation-workflow-execution";
+import { usePluginStore } from "@/stores/use-plugin-store";
+import { flushModelConfig, getModelConfigPersistenceState } from "@/services/model-config-repository";
 
-type ConfigSectionKey = "channels" | "models" | "diagnostics";
+type ConfigSectionKey = "channels" | "models" | "diagnostics" | "runninghub";
 
 const configSections: Array<{ key: ConfigSectionKey; label: string; description: string; icon: ReactNode }> = [
     { key: "channels", label: "个人渠道", description: "模型服务与个人工作流", icon: <RadioTower className="size-4" /> },
+    { key: "runninghub", label: "RunningHub", description: "云端工作流与 App", icon: <Workflow className="size-4" /> },
     { key: "diagnostics", label: "问题诊断", description: "导出问题记录", icon: <Bug className="size-4" /> },
 ];
 
@@ -29,11 +34,13 @@ export default function SettingsPage() {
     const initialSection = isConfigSection(requestedSection) ? requestedSection : "channels";
     const [activeTab, setActiveTab] = useState<ConfigSectionKey>(initialSection === "models" ? "channels" : initialSection);
     const config = useConfigStore((state) => state.config);
+    const runtimeStatuses = usePluginStore((state) => state.runtimeStatuses);
+    const [saving, setSaving] = useState(false);
     const effectiveConfig = useEffectiveConfig();
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const shouldPromptContinue = searchParams.get("continue") === "1";
     const userChannels = config.channels.filter((channel) => channel.scope !== "system");
-    const visibleConfigSections = useMemo(() => customChannelsEnabled ? configSections : configSections.filter((section) => section.key !== "channels"), [customChannelsEnabled]);
+    const visibleConfigSections = useMemo(() => customChannelsEnabled ? configSections : configSections.filter((section) => section.key !== "channels" && section.key !== "runninghub"), [customChannelsEnabled]);
 
     const isVisibleConfigSection = (value: string | null): value is ConfigSectionKey => isConfigSection(value) && visibleConfigSections.some((section) => section.key === value);
 
@@ -57,7 +64,7 @@ export default function SettingsPage() {
         setSearchParams(next, { replace: true });
     };
 
-    const finishConfig = () => {
+    const finishConfig = async () => {
         const invalidChannel = customChannelsEnabled ? userChannels.find((channel) => channelValidationError(channel)) : undefined;
         if (invalidChannel) {
             selectSection("channels");
@@ -65,20 +72,31 @@ export default function SettingsPage() {
             focusInvalidChannelField(invalidChannel);
             return;
         }
-        if (!effectiveConfig.channels.some(isChannelReady)) {
+        if (!effectiveConfig.channels.some(isChannelReady) && !(customChannelsEnabled && isRunningHubReady(config.runningHub, runtimeStatuses))) {
             selectSection("channels");
             message.error(customChannelsEnabled ? (shouldPromptContinue ? "请先完成至少一个渠道的 Base URL、API Key 和模型配置" : "当前没有可用渠道，请先完成连接信息和模型配置") : "当前没有可用的系统模型，请联系管理员配置系统渠道");
             return;
         }
-        message.success("配置已保存，正在返回创作页面");
-        navigate(-1);
+        setSaving(true);
+        try {
+            await flushModelConfig();
+            const persistence = getModelConfigPersistenceState();
+            if (persistence.status === "error" || persistence.dirty) throw new Error(persistence.error || "配置尚未保存，请重试");
+            message.success("配置已保存，正在返回创作页面");
+            navigate(-1);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "保存配置失败");
+        } finally {
+            setSaving(false);
+        }
     };
 
     const panes: Record<ConfigSectionKey, ReactNode> = {
+        runninghub: <SettingsPane><RunningHubSettingsPane /></SettingsPane>,
         diagnostics: <DiagnosticsPanel taskId={searchParams.get("taskId") || undefined} projectId={searchParams.get("projectId") || undefined} />,
         channels: (
             <SettingsPane>
-                <ChannelSettingsPane />
+                <ChannelSettingsPane onOpenRunningHub={() => selectSection("runninghub")} />
                 <div className="settings-section model-default-section">
                     <div className="settings-pane-header">
                         <div className="min-w-0">
@@ -108,14 +126,14 @@ export default function SettingsPage() {
         <main className="settings-page app-workspace-page app-user-workspace app-section-page flex h-full min-h-0 flex-col text-foreground">
                 <div className="settings-topbar shrink-0">
                     <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                        {activeTab === "diagnostics" ? (
+                        {activeTab === "diagnostics" || activeTab === "runninghub" ? (
                             <Button icon={<ArrowLeft className="size-4" />} onClick={() => selectSection("channels")}>返回模型配置</Button>
                         ) : (
                             <Button icon={<Bug className="size-4" />} onClick={() => selectSection("diagnostics")}>问题诊断</Button>
                         )}
                         {shouldPromptContinue ? <>
                         <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate(-1)}>返回创作</Button>
-                        <Button type="primary" onClick={finishConfig}>保存并返回</Button>
+                        <Button type="primary" loading={saving} onClick={() => void finishConfig()}>保存并返回</Button>
                         </> : null}
                     </div>
                 </div>

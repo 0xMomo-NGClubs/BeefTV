@@ -26,6 +26,21 @@ func TestMaterializedAssetIDMatchesFrontendGenerationIdentity(t *testing.T) {
 	}
 }
 
+func TestCanonicalWorkflowOutputsKeepMixedIndices(t *testing.T) {
+	outputs := CanonicalOutputs(`{"outputs":[{"mediaType":"image","storageKey":"resource:preview"},{"mediaType":"video","storageKey":"resource:clip-a"},{"mediaType":"video","storageKey":"resource:clip-b"},{"mediaType":"audio","storageKey":"resource:sound"},{"mediaType":"file","storageKey":"resource:metadata"}]}`)
+	if len(outputs) != 5 {
+		t.Fatalf("outputs=%#v", outputs)
+	}
+	for index, output := range outputs {
+		if output.OutputIndex != index || output.ResourceID == "" {
+			t.Fatalf("output=%#v", output)
+		}
+	}
+	if outputs[2].MediaType != "video" || outputs[4].MediaType != "file" {
+		t.Fatal("mixed media was discarded")
+	}
+}
+
 func TestOutputVersionIDMatchesWorkflowSlotZero(t *testing.T) {
 	taskID := "ac745990450a86d3365eb92ec26f378e"
 	if got, want := OutputVersionID(taskID, 0), StableEntityID("version", taskID); got != want {

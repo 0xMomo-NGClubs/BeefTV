@@ -15,7 +15,7 @@ func TestFetchSettingsAllowsEmptyPrompt(t *testing.T) {
 		if req.Kind != "" {
 			t.Fatalf("settings fetch kind = %q, want empty", req.Kind)
 		}
-		return []byte(`{"code":1,"msg":"ignored","data":{"prompt":""}}`), "application/json", nil
+		return []byte(`{"code":0,"data":{"prompt":""}}`), "application/json", nil
 	}}
 	client := &Client{Requests: exec}
 	result, err := client.FetchSettingsWorkflow(context.Background(), Config{APIKey: "k", BaseURL: "https://www.runninghub.cn"}, FetchRequest{
@@ -39,6 +39,26 @@ func TestFetchSettingsAllowsEmptyPrompt(t *testing.T) {
 	fields, _ := result["fields"].([]map[string]any)
 	if len(fields) != 0 {
 		t.Fatalf("fields = %#v, want empty", fields)
+	}
+}
+
+func TestFetchSettingsRejectsUpstreamFailureAndMalformedSchema(t *testing.T) {
+	for name, body := range map[string]string{
+		"business failure with data": `{"code":1,"msg":"workflow not available","data":{"prompt":""}}`,
+		"missing prompt":             `{"code":0,"data":{}}`,
+		"null prompt":                `{"code":0,"data":{"prompt":null}}`,
+		"number prompt":              `{"code":0,"data":{"prompt":42}}`,
+		"JSON null":                  `{"code":0,"data":{"prompt":"null"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			exec := &scriptedExecutor{handler: func(Request) ([]byte, string, error) {
+				return []byte(body), "application/json", nil
+			}}
+			result, err := (&Client{Requests: exec}).FetchSettingsWorkflow(context.Background(), Config{APIKey: "k"}, FetchRequest{WorkflowID: "wf-1"})
+			if err == nil || result != nil {
+				t.Fatalf("invalid upstream response accepted: result=%#v error=%v", result, err)
+			}
+		})
 	}
 }
 

@@ -284,16 +284,20 @@ export function mergeWorkflowFieldMappings(current: unknown, incoming: unknown, 
         if (field.min === undefined && previous.min !== undefined) merged.min = previous.min;
         if (field.max === undefined && previous.max !== undefined) merged.max = previous.max;
         if (field.step === undefined && previous.step !== undefined) merged.step = previous.step;
-        // 首次获得角色信息时采用服务端的内部参数默认值；之后才保留用户明确的启用选择。
-        if (field.role === "internal" && previous.role !== "internal") merged.enabled = field.enabled;
         if (field.safeToOverride === false) merged.enabled = false;
         return merged;
     });
 }
 
 function normalizeSavedWorkflowFields(workflow: { fields?: unknown; workflowJson?: Record<string, unknown> }, capability: RunningHubCapability) {
-    const schemaFields = workflowVideoFieldsFromJson(workflow.workflowJson);
-    return schemaFields.length ? mergeWorkflowFieldMappings(workflow.fields, schemaFields, capability) : normalizeWorkflowFieldMappings(workflow.fields, capability);
+    const savedFields = normalizeWorkflowFieldMappings(workflow.fields, capability);
+    const savedByKey = new Map(savedFields.map((field) => [`${field.nodeId}::${field.fieldName}`, field]));
+    const schemaFields = workflowVideoFieldsFromJson(workflow.workflowJson).map((field) => {
+        const saved = savedByKey.get(`${field.nodeId}::${field.fieldName}`);
+        // JSON 中的文件名只是字符串，不能用它覆盖拉取接口或用户配置的素材类型与角色。
+        return saved ? { ...field, fieldType: saved.fieldType || field.fieldType, role: saved.role || field.role } : field;
+    });
+    return schemaFields.length ? mergeWorkflowFieldMappings(savedFields, schemaFields, capability) : savedFields;
 }
 
 function workflowFieldRange(value: unknown) {
@@ -310,6 +314,9 @@ function workflowFieldRange(value: unknown) {
     return { min: read(["min", "minValue", "min_value"]), max: read(["max", "maxValue", "max_value"]), step: read(["step", "stepValue", "step_value"]) };
 }
 
+export type WorkflowVideoControlKey = "resolution" | "aspectRatio" | "duration";
+export type WorkflowVideoControls = Partial<Record<WorkflowVideoControlKey, { fieldKey: string; enabled: boolean }>>;
+
 export type RunningHubWorkflow = {
     kind?: RunningHubWorkflowKind;
     capability?: RunningHubCapability;
@@ -320,6 +327,7 @@ export type RunningHubWorkflow = {
     fields?: WorkflowFieldMapping[];
     workflowJson?: Record<string, unknown>;
     optionalImageMode?: string;
+    videoControls?: WorkflowVideoControls;
     raw?: Record<string, unknown>;
 };
 

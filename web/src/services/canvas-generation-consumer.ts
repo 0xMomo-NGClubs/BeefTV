@@ -170,7 +170,12 @@ export async function bindBackendCanvasGenerationResult(input: {
     const liveScope = runtime.liveScope ?? captureUserScope;
     const capturedScope = (runtime.captureScope ?? captureUserScope)();
     const capturedCanvasId = input.canvasId;
-    const outputIndex = input.outputIndex ?? 0;
+    const workflowOutputs = input.task.resultJson ? (JSON.parse(input.task.resultJson) as { outputs?: Array<{ id?: string; mediaType: string }> }).outputs : undefined;
+    const mode = input.task.type.replace("canvas_", "");
+    const workflowPrimaryIndex = workflowOutputs?.findIndex((item) => item.mediaType === mode) ?? -1;
+    const node = input.nodesRef.current.find((item) => item.id === input.nodeId);
+    const selectedIndex = node?.metadata?.generationOutputTaskId === input.task.id ? workflowOutputs?.findIndex((item) => item.id === node.metadata?.primaryOutputId) ?? -1 : -1;
+    const outputIndex = input.outputIndex ?? (selectedIndex >= 0 ? selectedIndex : workflowOutputs?.length ? Math.max(0, workflowPrimaryIndex) : 0);
     const hydrateOutputs = runtime.hydrateOutputs ?? hydrateBackendGeneratedOutputs;
     const persistDocument = runtime.persistDocument ?? (async (id, patch, entryCapturedScope) => {
         const captured = entryCapturedScope ?? capturedScope;

@@ -48,7 +48,6 @@ func workflowConfigFromProvider(config providerConfig) workflow.Config {
 		WebappID:              config.WebappID,
 		WorkflowJSON:          config.WorkflowJSON,
 		WorkflowFields:        config.WorkflowFields,
-		RunningHubUploadKey:   config.RunningHubUploadKey,
 	}
 }
 
@@ -61,7 +60,6 @@ func (s *Service) workflowInputFromCanvas(ctx context.Context, input canvasGener
 		ReferenceVideos:  workflowMediaList(input.ReferenceVideos),
 		ReferenceAudios:  workflowMediaList(input.ReferenceAudios),
 		ResumedRequestID: resumedProviderRequestID(ctx),
-		LocalWorkspace:   s.IsLocalMode(),
 	}
 	if input.Mask != nil {
 		media := workflowMedia(*input.Mask)

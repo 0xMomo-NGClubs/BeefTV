@@ -405,14 +405,13 @@ func TestAppModeUsesAiAppEndpoint(t *testing.T) {
 	}
 }
 
-func TestLocalWorkspaceRejectsMediaUpload(t *testing.T) {
+func TestMediaUploadRequiresPaidTaskContext(t *testing.T) {
 	client := &Client{Requests: &scriptedExecutor{handler: func(Request) ([]byte, string, error) {
-		t.Fatal("local workspace must not upload")
+		t.Fatal("missing receipt must not upload")
 		return nil, "", nil
-	}}}
+	}}, Plugins: allowPlugin{}}
 	_, err := client.RunRunningHub(context.Background(), Input{
-		Mode:           "video",
-		LocalWorkspace: true,
+		Mode: "video",
 		ReferenceImages: []Media{{
 			ID:      "ref-1",
 			DataURL: "data:image/png;base64,AAAA",
@@ -424,7 +423,7 @@ func TestLocalWorkspaceRejectsMediaUpload(t *testing.T) {
 			WorkflowID:    "wf-1",
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "本地工作区") {
+	if err == nil || !strings.Contains(err.Error(), "受理回执") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -438,11 +437,11 @@ func TestUploadAuthFailureUsesStatusBody(t *testing.T) {
 		return nil, "", nil
 	}}
 	client := &Client{Requests: exec, Media: stubMedia{}}
-	_, err := client.UploadMedia(context.Background(), "https://www.runninghub.cn", Config{RunningHubUploadKey: "upload-key"}, Media{
+	_, err := client.UploadMedia(context.Background(), "https://www.runninghub.cn", Config{APIKey: "consumer-key"}, Media{
 		ID:      "ref-1",
 		DataURL: "data:image/png;base64,AAAA",
-	}, false)
-	if err == nil || !strings.Contains(err.Error(), "素材上传 API Key（企业级）") {
+	})
+	if err == nil || !strings.Contains(err.Error(), "消费级 API Key") {
 		t.Fatalf("error = %v", err)
 	}
 }

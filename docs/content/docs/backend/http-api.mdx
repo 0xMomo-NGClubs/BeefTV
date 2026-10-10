@@ -41,10 +41,29 @@ Wails 和浏览器开发模式共用同一套 `127.0.0.1` HTTP 合同。路由�
 | `/tasks/*` | 生成任务创建、查询、取消、恢复与事件流 |
 | `/ai/*` | 外部模型目录和自定义协议转发 |
 | `/plugins/*`, `/skills/*` | 本地扩展包与技能 |
+| `/runninghub/workflow-info`, `/runninghub/app-info` | 已启用插件的 Workflow / App 参数查询，不创建生成任务 |
 | `/creation-conversations/*` | `/create` 页面对话的提交事实：按对话 CAS 读写、导入与墓碑删除 |
 | `/ops`, `/ops/:op` | 统一操作层：CLI、MCP 与内置 pi 会话共用同一组操作与校验 |
 | `/ops/clients*`, `/assistant/*` | 外部客户端登记、内置创作助手（同源代理）与宿主生命周期 |
 | `/health/*`, `/system/version` | 启动、就绪与版本诊断 |
+
+### RunningHub 工作流配置
+
+模型配置页提供 RunningHub 独立入口。启用开关通过 `PUT /plugins/runninghub-workflow-provider/activation` 更新当前 owner 的插件状态，同时保存本地配置；画布依据后端有效状态决定是否允许使用。
+
+`POST /runninghub/workflow-info` 接收 `baseUrl`、消费级 `apiKey`（官方「消费级-会员」）、`workflowId`、可选 `title` 和 `capability`，返回字段映射与 ComfyUI API JSON。`POST /runninghub/app-info` 使用 `webappId`，只返回 App 公开参数。二者限制请求体为 128 KiB，保留出站地址校验和插件权限校验；上游非零业务码或无效参数结构返回失败，不返回原始响应。
+
+配置及字段映射由本地后端持久保存；浏览器缓存不保存密钥。独立企业级上传 Key 输入暂时隐藏，上传不读取旧的 `uploadApiKey`。参数查询不会创建生成任务。测试画布和正式生成仍通过正常任务入口，可能产生供应商费用；ComfyUI API JSON 编辑不代表已经接入本机 ComfyUI 服务。
+
+带参考图片、视频、音频或蒙版的任务先保存为本地资源，后端通过 owner 归属校验读取字节，再调用 RunningHub `/openapi/v2/media/upload/binary`（multipart `file`、`Authorization: Bearer <apiKey>`）。上传必须返回业务码 `0` 和有效的 `data.fileName`；上传失败不提交工作流。返回的 `fileName` 按字段槽位填入 `nodeInfoList[].fieldValue`，不使用 `download_url` 替代 ComfyUI 加载节点路径。Workflow 提交至 `/task/openapi/create`，App 提交至 `/task/openapi/ai-app/run`；上传、参数查询、提交和轮询共用配置中的 `apiKey`。恢复已有上游任务只查询原任务，不重新上传或创建。上传资源用于任务输入，不作为永久云端资源库。
+
+工作流任务的 `resultJson.outputs` 为按上游顺序保留的完整产物数组，每项包含 `id`（`output:<index>`）、`outputIndex`、`mediaType`（`image`、`video`、`audio` 或 `file`）、资源引用与媒体元数据；仅在上游提供时保留 `sourceNodeId`，不从文件顺序推断节点。产物字节逐项写入当前 owner 的资源存储，结果中使用本地资源 URL、`storageKey` 和 `resourceId`，不重复保存主输出的内联副本。原有普通模型结果仍使用对应的 `images`、`video` 或 `audio` 合同。
+
+任务交付按任务 ID 与输出索引复用物化身份；图片、视频、音频进入素材库，附带文件保留为可下载资源，其就绪状态不要求媒体素材 ID。画布自动回填第一份匹配生成类型的输出，同时保存 `generationOutputs`、`generationOutputTaskId` 和 `primaryOutputId`；其他输出不覆盖当前节点。绑定结果集合时逐项核验资源归属与就绪状态。未返回匹配类型的媒体时，画布只保存结果集合并清除旧媒体预览。重新读取已有任务及展开输出不调用上游创建接口。
+
+运行时接受带端口的 Wails 开发窗口 Origin `wails://wails.localhost:<port>`，仍要求本机连接、已验证的启动令牌和 UI 引导凭据。桌面任务创建或重试未通过界面身份校验时返回 HTTP 403、`reason=desktop_ui_required`，表示任务尚未提交，与上游模型权限不足分别显示。
+
+### 本机媒体任务
 
 `POST /timeline/render-plan` 接收时间线快照、不透明源标识和输出选项，返回版本化语义计划。源标识是 nodeId 或 resource id，不是本地路径。请求不得携带 ffmpeg 参数。该接口不做生成、不写资源、不创建任务。
 

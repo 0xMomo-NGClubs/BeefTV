@@ -86,7 +86,7 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     const storyboardInputs = getConnectedStoryboardRows(nodeId, nodes, connections);
     assertResolvableGenerationMentions(prompt, mentionInputs);
     const hasExplicitResourceMention = hasResolvableGenerationMention(prompt, mentionInputs);
-    const isWorkflowSource = sourceNode?.type === CanvasNodeType.Config && isCanvasWorkflowProvider(sourceNode.metadata);
+    const isWorkflowSource = Boolean(sourceNode && isCanvasWorkflowProvider(sourceNode.metadata));
     const hasConnectedMedia = connectedInputs.some((input) => input.type === "image" || input.type === "video" || input.type === "audio" || input.type === "character");
     if ((promptOnly && hasConnectedMedia) || (Boolean(sourceNode?.metadata?.composerContent?.trim()) && (sourceNode?.type === CanvasNodeType.Config || isWorkflowSource)) || hasExplicitResourceMention) {
         const autoIncludeWorkflowMedia = isWorkflowSource;
@@ -234,7 +234,7 @@ function buildComposerGenerationContext(
     if (textBlocks.length) nextPrompt = `${nextPrompt.trim()}\n\n${textBlocks.join("\n\n")}`;
     if (autoIncludeWorkflowMedia) {
         // RunningHub/ComfyUI 工作流按保存的字段槽位接收图片、视频和音频；
-        // 配置节点不能因为提示词里没有逐个 @ 就丢失已连接媒体。
+        // 工作流生成节点不能因为提示词里没有逐个 @ 就丢失已连接媒体。
         // 先按连线顺序放入媒体，避免用户在提示词里 @图片2 后改变工作流槽位的索引；
         // 素材库中的显式 @ 引用仍保留在后面，不会被自动模式吞掉。
         const explicitInputs = selectedInputs.splice(0);
