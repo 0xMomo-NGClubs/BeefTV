@@ -10,6 +10,7 @@ import (
 
 	"infinite-canvas/backend/internal/editing"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/outbound"
 	"infinite-canvas/backend/internal/repository"
 	localtask "infinite-canvas/backend/internal/task"
 	"infinite-canvas/backend/internal/transcription"
@@ -46,6 +47,10 @@ func (w *taskWorkerCoordinator) processTimelineTranscription(task *model.Task, c
 			return w.failTimelineTask(task, "转写失败", "BeefTV 连接已改变，请重新提交转写")
 		}
 		executor.Client = transcription.NewClient(cred.BaseURL)
+		if _, err := outbound.ValidateOutboundURL(cred.BaseURL); err != nil {
+			return w.failTimelineTask(task, "转写失败", "云端转写地址不可用，请重新连接 BeefTV")
+		}
+		executor.Client.HTTP = outbound.OutboundHTTPClient(20 * time.Minute)
 		executor.Client.Model, executor.Client.APIKey = input.Model, cred.APIKey
 	}
 	result, err := executor.Run(ctx, input.ResourceID, input.Language, func(stage string, percent int) error {
