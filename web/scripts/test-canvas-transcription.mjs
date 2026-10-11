@@ -28,11 +28,12 @@ try {
         const path = new URL(route.request().url()).pathname;
         if (!path.startsWith("/api/")) return route.continue();
         const envelope = data => route.fulfill({ json: { code: 0, data, msg: "ok" } });
-        if (path === "/api/beefapi/connection/models") return envelope({ models: [
+        if (path === "/api/beefapi/connection/models") { await new Promise(resolve => setTimeout(resolve, 4500)); return envelope({ models: [
             { id: "hy-asr-3.0-preview", supportedEndpointTypes: ["audio.transcriptions"] },
             { id: "minimax-speech-2.8-hd", supportedEndpointTypes: ["audio.speech"] },
-        ] });
+        ] }); }
         if (path === "/api/timeline/transcriptions") {
+            await new Promise(resolve => setTimeout(resolve, 4500));
             submissions.push(route.request().postDataJSON());
             return envelope({ id: "transcription-fixture", status: "succeeded", resultJson: JSON.stringify(result) });
         }
@@ -60,6 +61,7 @@ try {
     assert.ok(submissions[0].clientOperationId);
     holdResult = true;
     await page.getByRole("button", { name: "自动转写字幕" }).click();
+    await page.getByRole("status").filter({ hasText: "正在转写" }).waitFor();
     await page.getByText("关闭窗口后，转写任务仍会继续，可在任务中心查看。", { exact: true }).waitFor();
     await page.getByRole("button", { name: "关闭测试窗口" }).click();
     await page.waitForFunction(() => document.querySelector('[data-testid="running"]')?.textContent === "false");

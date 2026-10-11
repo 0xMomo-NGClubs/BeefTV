@@ -1,16 +1,33 @@
 import { assertCanonicalPlan, type CanonicalPlanOptions, type CanonicalSourceMeta, type CanonicalTimelinePlan } from "@/lib/timeline/timeline-canonical-plan";
-import { http, type HttpRequestConfig } from "@/services/api/request";
+import { ApiError, http, type HttpRequestConfig } from "@/services/api/request";
+import { isAxiosError } from "axios";
 import type { GenerationTask } from "@/services/api/task-center";
 import type { TimelineProject } from "@/types/timeline";
 import type { ChannelModelCatalogItem } from "@/lib/channel-model-catalog";
 import { getBeefAPIConnectionEpoch } from "@/services/api/beefapi-connection";
 import { UserScopeAbandonedError } from "@/lib/user-scope-guard";
 
+// The local backend may spend 30 seconds fetching the managed catalog before
+// admitting a cloud task. Keep a response margin without retrying submissions.
+const TRANSCRIPTION_ADMISSION_TIMEOUT_MS = 35_000;
+
+function transcriptionTransportError(error: unknown, submitting: boolean): unknown {
+    const cause = error instanceof ApiError ? error.cause : error;
+    if (!isAxiosError(cause) || cause.response) return error;
+    const timedOut = cause.code === "ECONNABORTED" || cause.code === "ETIMEDOUT";
+    return new ApiError(submitting
+        ? (timedOut ? "转写提交等待超时，任务可能已创建。请先到任务中心确认状态。" : "转写提交连接中断，任务状态尚未确认。请先到任务中心查看。")
+        : (timedOut ? "读取转写模型超时，请检查 BeefTV 连接后重试。" : "无法连接转写模型服务，请检查 BeefTV 连接后重试。"),
+        { cause, status: error instanceof ApiError ? error.status : undefined });
+}
+
 export async function getTranscriptionModels(config?: HttpRequestConfig) {
     const connectionEpoch = getBeefAPIConnectionEpoch();
-    const result = await http.post<{ models: ChannelModelCatalogItem[] }>("/beefapi/connection/models", {}, config);
-    if (connectionEpoch !== getBeefAPIConnectionEpoch()) throw new UserScopeAbandonedError();
-    return result.models.filter(item => item.supportedEndpointTypes?.includes("audio.transcriptions"));
+    try {
+        const result = await http.post<{ models: ChannelModelCatalogItem[] }>("/beefapi/connection/models", {}, { timeout: TRANSCRIPTION_ADMISSION_TIMEOUT_MS, ...config });
+        if (connectionEpoch !== getBeefAPIConnectionEpoch()) throw new UserScopeAbandonedError();
+        return result.models.filter(item => item.supportedEndpointTypes?.includes("audio.transcriptions"));
+    } catch (error) { throw transcriptionTransportError(error, false); }
 }
 
 // 时间线字幕转写任务 API。
@@ -40,7 +57,9 @@ export async function createTimelineTranscriptionTask(
     payload: TimelineTranscriptionCreateRequest,
     config?: HttpRequestConfig,
 ): Promise<GenerationTask> {
-    return http.post<GenerationTask>("/timeline/transcriptions", payload, config);
+    try {
+        return await http.post<GenerationTask>("/timeline/transcriptions", payload, { ...(payload.model ? { timeout: TRANSCRIPTION_ADMISSION_TIMEOUT_MS } : {}), ...config });
+    } catch (error) { throw transcriptionTransportError(error, true); }
 }
 
 // 时间线成片渲染任务 API。
