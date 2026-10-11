@@ -259,7 +259,7 @@ async function prepareGenerationReferences({
     const portraitError = mode === "video" ? portraitGenerationError(config, config.model, config.vquality) : "";
     if (portraitError) throw new Error(portraitError);
     // asset:// 仅视频生成可用；Agent Plan Seedream 与 Seedance 共用 /api/plan/v3，不能按 BaseURL 误判。
-    const preferArkAssetUrl = mode === "video" && usesArkVideoAssetReference(config);
+    const preferArkAssetUrl = mode === "video" && (config.taskWorkflowProvider || "model") === "model" && usesArkVideoAssetReference(config);
     const preparedImages = await Promise.all(referenceImages.map((image) => prepareBackendImageReference(image, preferArkAssetUrl)));
     const preparedVideos = await Promise.all(referenceVideos.map(prepareBackendMediaReference));
     const preparedAudios = await Promise.all(referenceAudios.map(prepareBackendMediaReference));
@@ -383,6 +383,7 @@ function backendGenerationTaskInput(options: BackendGenerationTaskOptions, prepa
 }
 
 function generationMetadata(config: AiConfig, metadata?: Record<string, unknown>) {
+    if ((config.taskWorkflowProvider || "model") !== "model") return metadata;
     const channel = resolveModelChannel(config, config.model);
     const model = modelOptionName(config.model);
     const modelProfile = channel.modelProfiles?.find((item) => item.model === model);

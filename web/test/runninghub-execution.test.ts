@@ -1,7 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { isRunningHubReady, resolveGenerationWorkflowExecution } from "@/lib/generation-workflow-execution";
 import { RUNNINGHUB_PLUGIN_ID } from "@/lib/plugins/builtin/workflows";
-import { configWithoutCachedSecrets, defaultConfig, mergeWorkflowFieldMappings, normalizeConfigSnapshot, type RunningHubConfig, type WorkflowFieldMapping } from "@/stores/use-config-store";
+import { configWithoutCachedSecrets, createModelChannel, defaultConfig, encodeChannelModel, mergeWorkflowFieldMappings, normalizeConfigSnapshot, type RunningHubConfig, type WorkflowFieldMapping } from "@/stores/use-config-store";
 import { usePluginStore } from "@/stores/use-plugin-store";
 import { prepareBackendGenerationTask } from "@/services/api/generation-task";
 import { http } from "@/services/api/request";
@@ -25,6 +25,16 @@ test("readiness requires backend activation, credentials and a saved entry of th
     expect(isRunningHubReady(runningHub, {})).toBe(false);
     expect(isRunningHubReady({ ...runningHub, apiKey: "" }, statuses)).toBe(false);
     expect(isRunningHubReady({ ...runningHub, workflows: [runningHub.workflows[0]] }, statuses)).toBe(false);
+});
+
+test("RunningHub task preserves an empty prompt without inventing placeholder text", async () => {
+    usePluginStore.getState().setRuntimeStatuses(statuses);
+    const payload = await prepareBackendGenerationTask({ mode: "video", prompt: "", config: {
+        ...defaultConfig, taskWorkflowProvider: "runninghub", runningHub: { ...runningHub, selectedKind: "workflow", capability: "video" },
+    } });
+    expect(payload.prompt).toBe("");
+    expect(payload.input.prompt).toBe("");
+    expect(payload.provider).toBe("runninghub");
 });
 
 test("browser cache preserves the workflow but excludes every RunningHub credential", () => {
@@ -98,6 +108,22 @@ test("RunningHub test file is first saved as an owned resource rather than embed
     } finally {
         post.mockRestore();
     }
+});
+
+test("workflow preparation ignores stale portrait and Ark models and their protocol defaults", async () => {
+    usePluginStore.getState().setRuntimeStatuses(statuses);
+    const channel = createModelChannel({ id: "old-ark", name: "旧方舟", baseUrl: "https://ark.example.com", apiKey: "test", interfaceType: "volcengine-ark-video", models: ["seedance-2.0-portrait"], modelProfiles: [{ model: "seedance-2.0-portrait", capability: "video", protocol: "volcengine-ark-video", billingMode: "fixed_request", unitPriceMicrocredits: 1, defaultOptions: { staleSetting: true } }] });
+    const config = { ...defaultConfig, channels: [channel], model: encodeChannelModel(channel.id, "seedance-2.0-portrait"), taskWorkflowProvider: "runninghub" as const,
+        runningHub: { ...runningHub, selectedKind: "workflow" as const, capability: "video" as const } };
+    const task = await prepareBackendGenerationTask({
+        mode: "video", prompt: "工作流提示词", config, metadata: { nodeId: "workflow-node" },
+        referenceImages: [{ id: "photo", name: "photo.png", type: "image/png", dataUrl: "", storageKey: "resource:owned-photo", arkAssetId: "stale-ark-asset" }],
+    });
+    expect(task.provider).toBe("runninghub");
+    expect(task.input.referenceImages[0].storageKey).toBe("resource:owned-photo");
+    expect(task.input.referenceImages[0].url).toBeUndefined();
+    expect(task.input.metadata).toMatchObject({ nodeId: "workflow-node" });
+    expect(task.input.metadata.providerOptions).toBeUndefined();
 });
 
 test("workflow reload preserves media metadata, slot bindings and explicit field switches", () => {

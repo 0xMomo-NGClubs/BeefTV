@@ -378,7 +378,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                             onChange={(model) => {
                                 const workflow = videoWorkflows.find((item) => workflowOptionValue(item) === model);
                                 if (workflow && workflow === selectedWorkflow) return;
-                                onConfigChange(node.id, workflow ? { workflowProvider:"runninghub",runningHubWorkflowId:workflow.workflowId,runningHubWorkflowKind:workflow.kind === "app" ? "app" : "workflow",workflowParameters:{},videoStartFrameNodeId:undefined,videoEndFrameNodeId:undefined } : mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model, workflowProvider:"model",runningHubWorkflowId:undefined,runningHubWorkflowKind:undefined,workflowParameters:{} });
+                                onConfigChange(node.id, workflow ? { model:undefined,workflowProvider:"runninghub",runningHubWorkflowId:workflow.workflowId,runningHubWorkflowKind:workflow.kind === "app" ? "app" : "workflow",workflowParameters:{},videoStartFrameNodeId:undefined,videoEndFrameNodeId:undefined } : mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model, workflowProvider:"model",runningHubWorkflowId:undefined,runningHubWorkflowKind:undefined,workflowParameters:{} });
                             }}
                             capability={mode}
                             requirements={resolvedRequirements}

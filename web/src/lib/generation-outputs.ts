@@ -8,6 +8,7 @@ export type GenerationOutput = {
     url?: string;
     storageKey?: string;
     resourceId?: string;
+    assetId?: string;
     mimeType?: string;
     bytes?: number;
     width?: number;

@@ -412,6 +412,9 @@ func (c *Client) DownloadOutputs(ctx context.Context, urls []string, taskID stri
 
 func (c *Client) downloadWorkflowOutputs(ctx context.Context, artifacts []workflowOutput, taskID string, policy *PollPolicy) (map[string]interface{}, error) {
 	c = c.prepared()
+	if strings.TrimSpace(taskID) != "" {
+		c.updateReceipt(ctx, taskID, "downloading", nil)
+	}
 	outputs := make([]map[string]interface{}, 0, len(artifacts))
 	appendOutput := func(artifact workflowOutput, mimeType string, data []byte) {
 		value, _ := workflowOutputValue(mimeType, data).(map[string]interface{})

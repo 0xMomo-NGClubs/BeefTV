@@ -85,6 +85,7 @@ func (allowPlugin) EnsureEnabled(context.Context, string) error { return nil }
 type memoryReceipt struct {
 	mu           sync.Mutex
 	accepted     []string
+	stages       []string
 	failAccepted error
 	failReady    error
 }
@@ -105,7 +106,47 @@ func (m *memoryReceipt) RecordAccepted(_ context.Context, requestID, _ string, _
 	return nil
 }
 
-func (m *memoryReceipt) UpdateStage(context.Context, string, string, *time.Time) error { return nil }
+func (m *memoryReceipt) UpdateStage(_ context.Context, _ string, stage string, _ *time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.stages = append(m.stages, stage)
+	return nil
+}
+
+type immediateWorkflowTime struct{ DefaultTimePolicy }
+
+func (immediateWorkflowTime) Sleep(ctx context.Context, _ time.Duration) error { return ctx.Err() }
+
+func TestPollWorkflowReportsQueuedRunningAndDownloadStages(t *testing.T) {
+	for _, mode := range []string{"image", "video", "audio"} {
+		t.Run(mode, func(t *testing.T) {
+			receipt := &memoryReceipt{}
+			polls := 0
+			exec := &scriptedExecutor{handler: func(req Request) ([]byte, string, error) {
+				if !strings.Contains(req.URL, "/outputs") {
+					t.Fatalf("unexpected request %s", req.URL)
+				}
+				polls++
+				switch polls {
+				case 1:
+					return []byte(`{"code":813}`), "application/json", nil
+				case 2:
+					return []byte(`{"code":804}`), "application/json", nil
+				default:
+					return []byte(`{"code":0,"data":[{"fileUrl":"data:video/mp4;base64,AQID"}]}`), "application/json", nil
+				}
+			}}
+			client := productionClient(exec, receipt)
+			client.Time = immediateWorkflowTime{}
+			if _, err := client.Poll(context.Background(), Config{APIKey: "test"}, "https://www.runninghub.cn", "original", mode); err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Join(receipt.stages, ","); got != "queued,running,downloading,succeeded" {
+				t.Fatalf("stages = %s", got)
+			}
+		})
+	}
+}
 
 func (m *memoryReceipt) acceptedIDs() []string {
 	m.mu.Lock()
@@ -155,6 +196,30 @@ func productionClient(exec RequestExecutor, extras ...any) *Client {
 
 func pngJSON() []byte {
 	return []byte(`{"code":0,"data":[{"fileUrl":"https://rh-images.xiaoyaoyou.com/out.png"}]}`)
+}
+
+func TestEmptyPromptWithRequiredBindingSubmitsAndReportsUpstreamFailure(t *testing.T) {
+	input := imageCreateInput()
+	input.Config.WorkflowFields = []Field{{NodeID: "1", FieldName: "text", Source: "prompt", Required: true}}
+	var submitted bool
+	exec := &scriptedExecutor{handler: func(req Request) ([]byte, string, error) {
+		if !strings.Contains(req.URL, "/task/openapi/create") {
+			t.Fatalf("unexpected request: %s", req.URL)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(req.Body, &body); err != nil {
+			t.Fatal(err)
+		}
+		if items, _ := body["nodeInfoList"].([]any); len(items) != 0 {
+			t.Fatalf("empty prompt must preserve upstream defaults: %+v", items)
+		}
+		submitted = true
+		return []byte(`{"code":123,"msg":"workflow prompt invalid"}`), "application/json", nil
+	}}
+	_, err := productionClient(exec).Run(context.Background(), input)
+	if !submitted || err == nil || !strings.Contains(err.Error(), "workflow prompt invalid") {
+		t.Fatalf("upstream rejection was not returned: submitted=%v err=%v", submitted, err)
+	}
 }
 
 func TestRunResumesOriginalAcceptedTaskWithoutCreate(t *testing.T) {

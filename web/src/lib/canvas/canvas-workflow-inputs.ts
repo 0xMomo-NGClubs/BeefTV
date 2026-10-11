@@ -10,6 +10,7 @@ export function workflowMediaSlotIndex(field: WorkflowFieldMapping) {
 export function workflowSlotReference(field: WorkflowFieldMapping, references: CanvasResourceReference[]) {
     const kind = field.source === "referenceVideo" ? "video" : field.source === "referenceAudio" ? "audio" : "image";
     if (field.source === "mask") return undefined;
+    // 工作流角色卡只物化一张主参考图，与普通图片混排且各占一个槽位。
     return references.filter((item) => item.kind === kind || kind === "image" && item.kind === "character")[workflowMediaSlotIndex(field)];
 }
 

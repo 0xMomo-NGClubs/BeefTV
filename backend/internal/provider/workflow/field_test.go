@@ -117,6 +117,25 @@ func TestConnectedInputsAreNotOverridden(t *testing.T) {
 	}
 }
 
+func TestEmptyPromptDoesNotOverrideWorkflowDefaultsOrFailRequiredMapping(t *testing.T) {
+	workflowJSON := map[string]interface{}{"1": map[string]interface{}{"class_type": "CLIPTextEncode", "inputs": map[string]interface{}{"text": "workflow default"}}}
+	for _, source := range []string{"prompt", "text", "positive_prompt", "positive"} {
+		fields := []Field{{NodeID: "1", FieldName: "text", Source: source, Required: true}}
+		items, err := runningHubNodeInfoWithWorkflow(fields, nil, Input{Mode: "image"}, workflowJSON)
+		if err != nil || len(items) != 0 {
+			t.Fatalf("blank prompt source=%s overrides=%+v err=%v", source, items, err)
+		}
+		items, err = runningHubNodeInfoWithWorkflow(fields, nil, Input{Mode: "image", Prompt: "connected text"}, workflowJSON)
+		if err != nil || len(items) != 1 || items[0]["fieldValue"] != "connected text" {
+			t.Fatalf("connected text source=%s overrides=%+v err=%v", source, items, err)
+		}
+	}
+	_, err := runningHubNodeInfoWithWorkflow([]Field{{NodeID: "1", FieldName: "image", Source: "referenceImage", Required: true}}, nil, Input{Mode: "image"}, nil)
+	if err == nil {
+		t.Fatal("required media validation was removed with prompt validation")
+	}
+}
+
 func TestOutputTraversalIsRejected(t *testing.T) {
 	if runningHubRelativeOutputPath("../etc/passwd") {
 		t.Fatal("parent traversal must be rejected")

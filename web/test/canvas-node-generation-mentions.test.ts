@@ -34,6 +34,42 @@ function connection(fromNodeId: string): CanvasConnection {
 }
 
 describe("canvas node generation position mentions", () => {
+    test("工作流合并节点提示词与全部连线文字，文字顺序跟随连线且不重复显式引用", () => {
+        const target = targetNode();
+        target.metadata = { workflowProvider: "runninghub", runningHubWorkflowId: "workflow-id", composerContent: "" };
+        const image = node("image", CanvasNodeType.Image, "data:image/png;base64,YQ==");
+        const first = node("first", CanvasNodeType.Text, "subject_definitions:\n<Subject 1> is in <Picture 1>.");
+        const second = node("second", CanvasNodeType.Text, "integrated_multimodal_description:\nThe subject walks.");
+        for (const withImage of [false, true]) {
+            const connected = [...(withImage ? [image] : []), first, second].map((input) => connection(input.id));
+            const nodes = [target, image, first, second];
+            for (const prompt of ["", "生成视频"]) {
+                target.metadata.composerContent = prompt;
+                const context = buildNodeGenerationContext(target.id, nodes, connected, prompt, [], true);
+                expect(context.prompt).toBe([prompt, first.metadata.content, second.metadata.content].filter(Boolean).join("\n\n"));
+                expect(context.textCount).toBe(2);
+                expect(context.referenceImages).toHaveLength(withImage ? 1 : 0);
+            }
+            const explicit = buildNodeGenerationContext(target.id, nodes, connected, "使用 @文本1 和 @文本1", [], true);
+            expect(explicit.prompt.split(first.metadata.content!).length - 1).toBe(1);
+            expect(explicit.prompt).toContain(second.metadata.content!);
+            expect(explicit.textCount).toBe(2);
+            const repeatedConnection = buildNodeGenerationContext(target.id, nodes, [...connected, { ...connection(first.id), id: "other-handle" }], "", [], true);
+            expect(repeatedConnection.prompt.split(first.metadata.content!).length - 1).toBe(1);
+            expect(repeatedConnection.textCount).toBe(2);
+            const reordered = reorderCanvasResourceConnections(target.id, [second.id, first.id, ...(withImage ? [image.id] : [])], nodes, connected);
+            expect(buildNodeGenerationContext(target.id, nodes, reordered, "", [], true).prompt).toBe(`${second.metadata.content}\n\n${first.metadata.content}`);
+        }
+    });
+
+    test("工作流没有提示词或连线文字时保留空值，不填占位内容", () => {
+        const target = targetNode();
+        target.metadata = { workflowProvider: "runninghub", runningHubWorkflowId: "workflow-id", composerContent: "" };
+        const context = buildNodeGenerationContext(target.id, [target], [], "", [], true);
+        expect(context.prompt).toBe("");
+        expect(context.textCount).toBe(0);
+    });
+
     test("已有图片节点显式引用自身时作为图生图参考图提交", () => {
         const source = node("image-self", CanvasNodeType.Image, "data:image/png;base64,a");
         source.metadata.composerContent = "将 @图片1 图片变清晰";

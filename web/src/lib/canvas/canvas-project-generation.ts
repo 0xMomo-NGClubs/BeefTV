@@ -526,7 +526,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         : { capability: mode, options: liveOptions };
     const model = workflowProvider === "model"
         ? resolveCompatibleModel(config, preferredModel, imageSize ? { ...baseRequirements, imageSize } : baseRequirements) || preferredModel
-        : preferredModel;
+        : runningHubWorkflowId;
     const generationDefaults: Partial<ModelGenerationDefaults> = workflowProvider === "model"
         ? resolveModelGenerationDefaults(
               config,
