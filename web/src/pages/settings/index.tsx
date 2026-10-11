@@ -13,11 +13,16 @@ import { isRunningHubReady } from "@/lib/generation-workflow-execution";
 import { usePluginStore } from "@/stores/use-plugin-store";
 import { flushModelConfig, getModelConfigPersistenceState } from "@/services/model-config-repository";
 
-type ConfigSectionKey = "channels" | "models" | "diagnostics" | "runninghub";
+import { StorageSettingsPane } from "./storage-settings-pane";
+import { ReferenceStoragePane } from "./reference-storage-pane";
+import { getDesktopAppBinding } from "@/services/desktop-runtime";
+
+type ConfigSectionKey = "channels" | "models" | "storage" | "diagnostics" | "runninghub";
 
 const configSections: Array<{ key: ConfigSectionKey; label: string; description: string; icon: ReactNode }> = [
     { key: "channels", label: "个人渠道", description: "模型服务与个人工作流", icon: <RadioTower className="size-4" /> },
     { key: "runninghub", label: "RunningHub", description: "云端工作流与 App", icon: <Workflow className="size-4" /> },
+    { key: "storage", label: "存储设置", description: "本地目录和参考素材存储", icon: null },
     { key: "diagnostics", label: "问题诊断", description: "导出问题记录", icon: <Bug className="size-4" /> },
 ];
 
@@ -40,7 +45,8 @@ export default function SettingsPage() {
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const shouldPromptContinue = searchParams.get("continue") === "1";
     const userChannels = config.channels.filter((channel) => channel.scope !== "system");
-    const visibleConfigSections = useMemo(() => customChannelsEnabled ? configSections : configSections.filter((section) => section.key !== "channels" && section.key !== "runninghub"), [customChannelsEnabled]);
+    const nativeStorage = Boolean(getDesktopAppBinding()?.StorageSettings);
+    const visibleConfigSections = useMemo(() => configSections.filter(section => ((section.key !== "channels" && section.key !== "runninghub") || customChannelsEnabled) && (section.key !== "storage" || nativeStorage)), [customChannelsEnabled, nativeStorage]);
 
     const isVisibleConfigSection = (value: string | null): value is ConfigSectionKey => isConfigSection(value) && visibleConfigSections.some((section) => section.key === value);
 
@@ -91,12 +97,11 @@ export default function SettingsPage() {
         }
     };
 
-    const panes: Record<ConfigSectionKey, ReactNode> = {
+    const panes: Record<Exclude<ConfigSectionKey, "diagnostics">, ReactNode> = {
         runninghub: <SettingsPane><RunningHubSettingsPane /></SettingsPane>,
-        diagnostics: <DiagnosticsPanel taskId={searchParams.get("taskId") || undefined} projectId={searchParams.get("projectId") || undefined} />,
         channels: (
             <SettingsPane>
-                <ChannelSettingsPane onOpenRunningHub={() => selectSection("runninghub")} />
+                <ChannelSettingsPane onOpenDiagnostics={() => selectSection("diagnostics")} onOpenRunningHub={() => selectSection("runninghub")} />
                 <div className="settings-section model-default-section">
                     <div className="settings-pane-header">
                         <div className="min-w-0">
@@ -107,6 +112,7 @@ export default function SettingsPage() {
                 </div>
             </SettingsPane>
         ),
+        storage: <SettingsPane><StorageSettingsPane /><ReferenceStoragePane /></SettingsPane>,
         models: (
             <SettingsPane>
                 <div className="settings-pane-header">
@@ -124,28 +130,33 @@ export default function SettingsPage() {
 
     return (
         <main className="settings-page app-workspace-page app-user-workspace app-section-page flex h-full min-h-0 flex-col text-foreground">
-                <div className="settings-topbar shrink-0">
+            {nativeStorage ? <nav aria-label="设置栏目" className="flex shrink-0 flex-wrap gap-2 px-4 py-3">{visibleConfigSections.map(section=><Button key={section.key} aria-pressed={activeTab===section.key} onClick={()=>selectSection(section.key)}>{section.label}</Button>)}</nav> : null}
+                {shouldPromptContinue || activeTab === "runninghub" ? <div className="settings-topbar shrink-0">
                     <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                        {activeTab === "diagnostics" || activeTab === "runninghub" ? (
+                        {activeTab === "runninghub" ? (
                             <Button icon={<ArrowLeft className="size-4" />} onClick={() => selectSection("channels")}>返回模型配置</Button>
-                        ) : (
-                            <Button icon={<Bug className="size-4" />} onClick={() => selectSection("diagnostics")}>问题诊断</Button>
-                        )}
+                        ) : null}
                         {shouldPromptContinue ? <>
                         <Button icon={<ArrowLeft className="size-4" />} onClick={() => navigate(-1)}>返回创作</Button>
                         <Button type="primary" loading={saving} onClick={() => void finishConfig()}>保存并返回</Button>
                         </> : null}
                     </div>
-                </div>
+                </div> : null}
             <div className="settings-library-frame flex min-h-0 flex-1 flex-col md:flex-row">
                 <section className="settings-content flex min-h-0 min-w-0 flex-1 flex-col">
                     <div className="app-workspace-scroll app-section-page-content min-h-0 flex-1 overflow-y-auto overscroll-contain">
                         <div className="settings-pane-root mx-auto w-full max-w-none">
-                            {panes[activeTab]}
+                            {panes[activeTab === "diagnostics" ? "channels" : activeTab]}
                         </div>
                     </div>
                 </section>
             </div>
+            <DiagnosticsPanel
+                open={activeTab === "diagnostics"}
+                onClose={() => selectSection("channels")}
+                taskId={searchParams.get("taskId") || undefined}
+                projectId={searchParams.get("projectId") || undefined}
+            />
         </main>
     );
 }

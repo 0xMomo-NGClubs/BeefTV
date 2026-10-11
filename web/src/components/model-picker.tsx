@@ -1,11 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { Check, ChevronDown, ChevronLeft } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { Popover } from "antd";
 
 import { canvasThemes, type CanvasTheme } from "@/lib/canvas-theme";
 import { compatibleModelInGroup, configuredModelDisplayName, groupModelsByDisplayName, modelCompatibilityError, resolveCompatibleModel, type ModelRequirements } from "@/lib/model-selection";
 import { cn } from "@/lib/utils";
-import { modelDisplayName, modelIcon, modelOptionName, PUBLIC_MODEL_CATALOG_ID, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { modelDisplayName, modelIcon, modelOptionName, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { ModelLogo } from "@/components/model-logo";
 import { portraitPriceLines, seedancePortraitLabel, seedancePortraitModel } from "@/lib/seedance-portrait";
@@ -58,7 +58,6 @@ export function ModelPicker({
             .map((channel) => ({
                 key: channel.id,
                 label: channel.name || "未命名渠道",
-                scope: channel.id === PUBLIC_MODEL_CATALOG_ID ? "" : channel.scope === "system" ? "平台服务" : "我的模型",
                 models: groupModelsByDisplayName(
                     config,
                     options.filter((model) => resolveModelChannel(config, model).id === channel.id),
@@ -155,6 +154,15 @@ export function ModelPicker({
         const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : event.key === "ArrowUp" ? Math.max(0, activeIndex - 1) : Math.min(buttons.length - 1, activeIndex + 1);
         buttons[nextIndex]?.focus();
     };
+    const toggleGroup = (group: (typeof optionGroups)[number]) => {
+        if (activeGroupKey === group.key) {
+            setActiveGroupKey(null);
+            return;
+        }
+        const groupCurrent = group.models.find((item) => item.models.includes(current));
+        setActiveGroupKey(group.key);
+        setPreviewedModel(groupCurrent?.models[0] || group.models[0]?.models[0] || "");
+    };
     const content = (
         <div
             ref={menuRef}
@@ -180,10 +188,8 @@ export function ModelPicker({
                 activeGroupKey === null ? (
                     <div className="canvas-model-picker-brands" aria-label="选择模型品牌">
                         {optionGroups.map((group) => {
-                            const groupCurrent = group.models.find((item) => item.models.includes(current));
-                            const firstModel = groupCurrent?.models[0] || group.models[0]?.models[0] || "";
-                            return <button key={group.key} type="button" className="canvas-model-picker-brand" onClick={() => { setActiveGroupKey(group.key); setPreviewedModel(firstModel); }}>
-                                <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong><small>{group.models.length} 个{group.optionLabel}{group.scope ? ` · ${group.scope}` : ""}</small></span>
+                            return <button key={group.key} type="button" className="canvas-model-picker-brand" aria-expanded={false} onClick={() => toggleGroup(group)}>
+                                <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong></span>
                                 <ChevronDown className="canvas-model-picker-brand-arrow" aria-hidden="true" />
                             </button>;
                         })}
@@ -191,19 +197,13 @@ export function ModelPicker({
                 ) : <div className="canvas-model-picker-two-pane">
                     <div className="canvas-model-picker-brand-rail" aria-label="模型品牌">
                         {optionGroups.map((group) => {
-                            const groupCurrent = group.models.find((item) => item.models.includes(current));
-                            const firstModel = groupCurrent?.models[0] || group.models[0]?.models[0] || "";
-                            return <button key={group.key} type="button" className={cn("canvas-model-picker-brand", activeGroupKey === group.key && "is-active")} aria-pressed={activeGroupKey === group.key} onClick={() => { setActiveGroupKey(group.key); setPreviewedModel(firstModel); }}>
-                                <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong><small>{group.models.length} 个{group.optionLabel}{group.scope ? ` · ${group.scope}` : ""}</small></span>
+                            return <button key={group.key} type="button" className={cn("canvas-model-picker-brand", activeGroupKey === group.key && "is-active")} aria-expanded={activeGroupKey === group.key} onClick={() => toggleGroup(group)}>
+                                <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong></span>
                                 <ChevronDown className="canvas-model-picker-brand-arrow" aria-hidden="true" />
                             </button>;
                         })}
                     </div>
                     {optionGroups.filter((group) => group.key === activeGroupKey).map((group) => <section key={group.key} className="canvas-model-picker-group canvas-model-picker-model-pane min-w-0 overflow-hidden">
-                        <div className="canvas-model-picker-secondary-head">
-                            <button type="button" className="canvas-model-picker-back" onClick={() => setActiveGroupKey(null)} aria-label="返回品牌列表"><ChevronLeft /></button>
-                            <span><strong>{group.label}</strong>{group.scope ? <small>{group.scope}</small> : null}</span>
-                        </div>
                         <div className="canvas-model-picker-options grid min-w-0 gap-1">
                             {!group.models.length ? <p className="p-2 text-xs" style={{ color: theme.node.muted }}>请先在设置中保存视频工作流</p> : null}
                             {group.models.map((modelGroup) => {
