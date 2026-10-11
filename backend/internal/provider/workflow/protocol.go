@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -157,8 +158,19 @@ func runningHubOutputs(value interface{}) []workflowOutput {
 			if id := stringValue(item["nodeId"]); id != "" {
 				nodeID = id
 			}
-			for _, key := range []string{"fileUrl", "file_url", "url", "downloadUrl", "download_url", "src", "output", "outputs", "results", "files", "data", "images", "videos", "audio", "audios", "result"} {
-				visit(item[key], nodeID)
+			keys := make([]string, 0, len(item))
+			for key := range item {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, preferred := range []string{"fileUrl", "file_url", "url", "downloadUrl", "download_url", "src", "output", "outputs", "results", "files", "data", "images", "videos", "audio", "audios", "result"} {
+				visit(item[preferred], nodeID)
+				// 精确键优先，其他旧拼写按原键排序，兼容网关且不依赖 map 遍历顺序。
+				for _, key := range keys {
+					if key != preferred && strings.EqualFold(strings.TrimSpace(key), preferred) {
+						visit(item[key], nodeID)
+					}
+				}
 			}
 		}
 	}

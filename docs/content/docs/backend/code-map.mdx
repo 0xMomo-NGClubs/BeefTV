@@ -22,6 +22,8 @@ RunningHub 设置由 `web/src/pages/settings/runninghub-settings-pane.tsx` 管�
 
 `services/canvas-generation-outputs.ts` 在添加媒体或选择主输出前查询任务交付记录，按输出索引核对资源并取得对应素材 ID；`canvas-generation-outputs.ts` 同时写入素材与资源引用，随后沿用普通画布保存流程。`app/workflow_adapter.go` 将上游排队、运行和下载状态交给租约约束的生成阶段端口，不修改任务进度或终态；`provider/workflow/client.go` 在读取产物前记录下载阶段。
 
+设置页私有的 `runninghub-metadata-request.ts` 在请求存续期间订阅站点、Key 和账号变化，立即取消旧请求并在写回前复核身份；订阅在取消或完成后释放。`provider/workflow/protocol.go` 按固定顺序识别规范化的输出字段。`task.CanonicalOutputs` 保留主线的 `taskType` 参数，深度捕获任务使用独立结果结构，工作流任务使用多输出数组；交付、恢复和绑定继续共用现有任务机制。
+
 ```text
 Wails / local dev
   -> internal/bootstrap        组合根、数据库、HTTP 生命周期

@@ -14,6 +14,7 @@ import { fetchPluginRuntimeState, setUserPluginEnabled } from "@/services/api/pl
 import { RUNNINGHUB_PLUGIN_ID } from "@/lib/plugins/builtin/workflows";
 import { usePluginStore } from "@/stores/use-plugin-store";
 import { flushModelConfig, getModelConfigPersistenceState, subscribeModelConfigPersistence } from "@/services/model-config-repository";
+import { observeRunningHubMetadataRequest } from "./runninghub-metadata-request";
 import {
     normalizeRunningHubCapability,
     normalizeRunningHubWorkflowKind,
@@ -70,7 +71,11 @@ export function RunningHubSettingsPane() {
     const fetchController = useRef<AbortController | null>(null);
     const [workspaceMode, setWorkspaceMode] = useState<"fields" | "test">("fields");
 
-    useEffect(() => () => { fetchController.current?.abort(); }, []);
+    useEffect(() => () => {
+        const controller = fetchController.current;
+        fetchController.current = null;
+        controller?.abort();
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -155,19 +160,27 @@ export function RunningHubSettingsPane() {
         fetchController.current?.abort();
         const controller = new AbortController();
         fetchController.current = controller;
+        const request = observeRunningHubMetadataRequest(controller);
+        controller.signal.addEventListener("abort", () => {
+            if (fetchController.current === controller) {
+                fetchController.current = null;
+                setFetching(false);
+            }
+        }, { once: true });
         setFetching(true);
         try {
+            if (!request.isCurrent()) return;
             // 管理接口只接受拉取参数所需的小请求，不能把已保存工作流及大段 JSON 一并提交。
             const fetchConfig = {
-                baseUrl: runningHub.baseUrl,
-                apiKey: runningHub.apiKey,
+                baseUrl: request.connection.baseUrl,
+                apiKey: request.connection.apiKey,
                 walletApiKey: "",
                 useWallet: false,
                 title: title.trim(),
                 capability,
             };
-            const result = kind === "app" ? await fetchRunningHubApp({ ...fetchConfig, webappId: id }, controller.signal) : await fetchRunningHubWorkflow({ ...fetchConfig, workflowId: id }, controller.signal);
-            if (controller.signal.aborted) return;
+            const result = kind === "app" ? await fetchRunningHubApp({ ...fetchConfig, webappId: id }, controller.signal, request.expectedScope) : await fetchRunningHubWorkflow({ ...fetchConfig, workflowId: id }, controller.signal, request.expectedScope);
+            if (!request.isCurrent()) return;
             const existing = useConfigStore.getState().config.runningHub.workflows.find((workflow) => workflowEntryKey(workflow) === `${kind}:${id}`);
             const item: RunningHubWorkflow = {
                 ...result,
@@ -183,15 +196,17 @@ export function RunningHubSettingsPane() {
             setWorkflowText(item.workflowJson ? JSON.stringify(item.workflowJson, null, 2) : "");
             setTitle(item.title || "");
             await flushModelConfig();
+            if (!request.isCurrent()) return;
             const saved = getModelConfigPersistenceState();
             if (saved.status === "error" || saved.dirty) throw new Error(saved.error || "参数尚未保存到本地后端，请重试");
             message.success(
                 `${kind === "app" ? "RunningHub App" : "RunningHub 工作流"}参数已重新拉取并保存`,
             );
         } catch (error) {
-            if (controller.signal.aborted) return;
+            if (!request.isCurrent()) return;
             message.error(error instanceof Error ? `拉取失败：${error.message}` : "拉取 RunningHub 参数失败");
         } finally {
+            request.dispose();
             if (fetchController.current === controller) {
                 fetchController.current = null;
                 setFetching(false);

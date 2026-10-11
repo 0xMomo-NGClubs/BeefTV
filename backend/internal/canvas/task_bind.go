@@ -20,22 +20,25 @@ type TaskOutputBind struct {
 	GenerationOutputs []any
 	// Set only by the transaction-bound composition root after local render ownership validation.
 	AllowEmptyVideo bool `json:"-"`
-	CanvasID        string
-	NodeID          string
-	TaskID          string
-	OutputIndex     int
-	EffectKey       string
-	MediaType       string
-	AssetID         string
-	ResourceID      string
-	StorageKey      string
-	Content         string
-	MimeType        string
-	Bytes           int64
-	Width           int
-	Height          int
-	DurationMs      int64
-	Storyboard      map[string]any
+	// Trusted admission identity for a depth node saved before the task response.
+	DepthClientOperationID string `json:"-"`
+
+	CanvasID    string
+	NodeID      string
+	TaskID      string
+	OutputIndex int
+	EffectKey   string
+	MediaType   string
+	AssetID     string
+	ResourceID  string
+	StorageKey  string
+	Content     string
+	MimeType    string
+	Bytes       int64
+	Width       int
+	Height      int
+	DurationMs  int64
+	Storyboard  map[string]any
 }
 
 // TaskOutputBindResult is the canvas write outcome after a generation bind.
@@ -79,7 +82,7 @@ func (s *Service) bindTaskOutputOnce(userID string, patch TaskOutputBind) (TaskO
 			Message: "原任务节点已删除，未重新创建节点",
 		}
 	}
-	if got := nodeString(nodeMetadata(node), "taskId"); got != strings.TrimSpace(patch.TaskID) && !canBindEmptyRenderNode(node, patch) {
+	if got := nodeString(nodeMetadata(node), "taskId"); got != strings.TrimSpace(patch.TaskID) && !canBindEmptyRenderNode(node, patch) && !canBindPendingDepthNode(node, patch) {
 		return TaskOutputBindResult{}, &kernel.AppError{
 			Status: http.StatusConflict, Reason: kernel.ErrorReason("node_task_mismatch"),
 			Message: "节点已绑定到其他任务，未覆盖该节点",
@@ -100,6 +103,16 @@ func (s *Service) bindTaskOutputOnce(userID string, patch TaskOutputBind) (TaskO
 		return TaskOutputBindResult{}, err
 	}
 	return TaskOutputBindResult{Revision: summary.Revision, Node: cloneNode(node)}, nil
+}
+
+func canBindPendingDepthNode(node map[string]any, patch TaskOutputBind) bool {
+	metadata := nodeMetadata(node)
+	if patch.DepthClientOperationID == "" || nodeString(metadata, "taskClientOperationId") != patch.DepthClientOperationID || nodeString(metadata, "depthSourceNodeId") == "" {
+		return false
+	}
+	// The same empty-media guard also rejects a node assigned to another task.
+	patch.AllowEmptyVideo = true
+	return canBindEmptyRenderNode(node, patch)
 }
 
 func canBindEmptyRenderNode(node map[string]any, patch TaskOutputBind) bool {

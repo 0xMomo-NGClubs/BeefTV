@@ -51,13 +51,17 @@ Wails 和浏览器开发模式共用同一套 `127.0.0.1` HTTP 合同。路由�
 
 模型配置页提供 RunningHub 独立入口。启用开关通过 `PUT /plugins/runninghub-workflow-provider/activation` 更新当前 owner 的插件状态，同时保存本地配置；画布依据后端有效状态决定是否允许使用。
 
-`POST /runninghub/workflow-info` 接收 `baseUrl`、消费级 `apiKey`（官方「消费级-会员」）、`workflowId`、可选 `title` 和 `capability`，返回字段映射与 ComfyUI API JSON。`POST /runninghub/app-info` 使用 `webappId`，只返回 App 公开参数。二者限制请求体为 128 KiB，保留出站地址校验和插件权限校验；上游非零业务码或无效参数结构返回失败，不返回原始响应。
+`POST /runninghub/workflow-info` 接收 `baseUrl`、消费级 `apiKey`（官方「消费级-会员」）、`workflowId`、可选 `title` 和 `capability`，返回字段映射与 ComfyUI API JSON。`POST /runninghub/app-info` 使用 `webappId`，只返回 App 公开参数。二者限制请求体为 128 KiB，保留出站地址校验和插件权限校验，不返回原始响应。Workflow 的只读 metadata 拉取沿用按 schema 校验的合同：提供有效 `data.prompt` 时允许网关外层 `code` 非零；空字符串是有效空 schema，缺失、null、数字或不可解析的 JSON 返回失败。App 参数拉取仍拒绝上游非零业务码。
 
 配置及字段映射由本地后端持久保存；浏览器缓存不保存密钥。独立企业级上传 Key 输入暂时隐藏，上传不读取旧的 `uploadApiKey`。参数查询不会创建生成任务。测试画布和正式生成仍通过正常任务入口，可能产生供应商费用；ComfyUI API JSON 编辑不代表已经接入本机 ComfyUI 服务。
+
+参数拉取使用发起时的站点、凭据和账号身份；这些身份发生变化时立即取消当前请求，写回前再次检查。即使站点或凭据在同一轮修改后又恢复原值，旧请求也不能更新当前工作流配置。
 
 带参考图片、视频、音频或蒙版的任务先保存为本地资源，后端通过 owner 归属校验读取字节，再调用 RunningHub `/openapi/v2/media/upload/binary`（multipart `file`、`Authorization: Bearer <apiKey>`）。上传必须返回业务码 `0` 和有效的 `data.fileName`；上传失败不提交工作流。返回的 `fileName` 按字段槽位填入 `nodeInfoList[].fieldValue`，不使用 `download_url` 替代 ComfyUI 加载节点路径。Workflow 提交至 `/task/openapi/create`，App 提交至 `/task/openapi/ai-app/run`；上传、参数查询、提交和轮询共用配置中的 `apiKey`。恢复已有上游任务只查询原任务，不重新上传或创建。上传资源用于任务输入，不作为永久云端资源库。
 
 工作流任务的 `resultJson.outputs` 为按上游顺序保留的完整产物数组，每项包含 `id`（`output:<index>`）、`outputIndex`、`mediaType`（`image`、`video`、`audio` 或 `file`）、资源引用与媒体元数据；仅在上游提供时保留 `sourceNodeId`，不从文件顺序推断节点。产物字节逐项写入当前 owner 的资源存储，结果中使用本地资源 URL、`storageKey` 和 `resourceId`，不重复保存主输出的内联副本。原有普通模型结果仍使用对应的 `images`、`video` 或 `audio` 合同。
+
+上游输出解析保留数组顺序，字段名接受已有的大小写和首尾空白变体；同一对象按固定字段优先级读取，精确拼写优先，同名变体按原键排序，避免 Go map 的遍历顺序改变输出索引。
 
 任务交付按任务 ID 与输出索引复用物化身份；图片、视频、音频进入素材库，附带文件保留为可下载资源，其就绪状态不要求媒体素材 ID。画布自动回填第一份匹配生成类型的输出，同时保存 `generationOutputs`、`generationOutputTaskId` 和 `primaryOutputId`；其他输出不覆盖当前节点。绑定结果集合时逐项核验资源归属与就绪状态。未返回匹配类型的媒体时，画布只保存结果集合并清除旧媒体预览。重新读取已有任务及展开输出不调用上游创建接口。
 
@@ -75,7 +79,11 @@ Wails 和浏览器开发模式共用同一套 `127.0.0.1` HTTP 合同。路由�
 
 `POST /timeline/transcriptions` 接收待转写素材编号和可选语言，创建本机字幕转写任务。只接受当前用户已上传完成的音视频。
 
-`POST /depth-captures` 接收待处理视频素材编号，创建本机深度动作捕捉任务。只接受当前用户已上传完成的视频。
+`POST /depth-captures` 接收待处理视频素材编号，创建本机深度动作捕捉任务。只接受当前用户已上传完成的视频。可选 `nodeId` 指定结果节点，此时必须提供 `projectId`；任务保存目标节点并在完成后使用既有画布任务绑定操作回填。节点必须仍引用该任务，已删除或已改用其他任务的节点不会被恢复或覆盖。
+
+深度任务继续在 `resultJson.resourceId` 返回结果资源，同时通过标准 `outputs` 提供视频素材及交付状态。历史深度任务也支持结果交付修复；没有记录目标节点的旧任务可通过 `canvas.task.bind` 绑定仍引用该任务的节点。交付暂时失败不会改写任务的成功状态，后台恢复仅重试交付，不重新执行深度处理。
+
+若创建响应丢失，深度节点尚未保存 `taskId`，后台只在画布和目标节点匹配、节点 `taskClientOperationId` 与任务持久化的 `clientOperationId` 一致、节点仍为没有结果的深度视频节点时补上绑定。已有其他任务或素材的节点不会被覆盖。
 
 这些任务在本机完成，提交时不用挑选模型。请求可以带 `clientOperationId`：同一确认重复提交会回到原来的任务；同一确认换成不同内容会被拒绝，不会再新建一条。
 
@@ -90,6 +98,8 @@ Wails 和浏览器开发模式共用同一套 `127.0.0.1` HTTP 合同。路由�
 `DELETE /resources/playback-cache` 清理当前用户已完成或失败的本地预览记录和副本，返回 `{ cleared }`。正在转换的预览和原资源不删除；其他用户的缓存不改变。
 
 ### 素材与操作
+
+素材保存和批量同步会去除 `id` 首尾空白；未提供或仅含空白时生成 ID。数据库记录与返回素材文档使用同一个 ID，客户端后续更新应沿用该 ID。未识别的扩展字段和 `metadata.favorite` 会保留。
 
 `DELETE /assets/:id` 校验素材归属及业务引用。清空回收站时传 `expectedStatus=archived`，在删除事务内再次检查状态；期间已经还原的素材返回 409 并保留。该参数只接受 `archived`，其他值返回 400。省略参数保留普通删除语义，仍须通过引用检查。
 
@@ -140,6 +150,8 @@ Wails 和浏览器开发模式共用同一套 `127.0.0.1` HTTP 合同。路由�
 
 MCP 使用官方 Go SDK 的 stdio transport；stdout 只写协议消息，启动诊断写 stderr。未发现运行实例时返回 `runtime_not_found`，不猜测默认端口；读取操作清单的启动等待上限为 5 秒。
 
+使用运行时发现地址的 CLI/MCP 会在每次调用前重新读取当前实例，桌面重启换端口后，下一次调用连接新实例。显式设置 `BEEFTV_BASE_URL` 时保持固定地址。连接失败不会自动重发写操作，以免重复执行已送达的请求。
+
 Windows 的运行地址描述文件位于用户目录的 `.beeftv/runtime/`，按数据目录的规范化路径摘要分开保存，并校验工作区身份。该位置在 AppData 外，客户端不再读取 AppData 中旧的 `runtime.json`，避免 Microsoft Store/MSIX 客户端的私有副本遮住真实实例。数据库和素材仍留在原工作区。升级后保持 BeefTV 开启，并在「外部 Agent」重新生成连接配置。
 
 ### 只读边界
@@ -156,6 +168,8 @@ Windows 的运行地址描述文件位于用户目录的 `.beeftv/runtime/`，�
 - 服务端对写操作始终按登记权限拒绝只读客户端（`read_only_client`），不依赖客户端自觉。
 
 内置 Pi 使用另一份按回合保存的权限：`POST /assistant/chat` 可带 `permissionMode: "read-only" | "canvas" | "full-access"`。缺省和旧记录为 `canvas`，不自动升权。只读能查看本用户工作区内容，不能修改、渲染或提交生成提议；当前画布模式保留当前画布写入范围；完全访问能读本用户工作区并修改所有画布。权限在 Go 开始回合时固定，补充输入不能改变，宿主恢复前重新读取；执行中的界面选择器显示该回合权限。技能仍只能读取本轮选定的固定版本，完全访问不开放宿主机 shell。
+
+技能正文按 UTF-8 字节计量：单个正文最多 256 KiB，每轮所选技能正文合计最多 512 KiB，正文完整读取，不静默截断。超限返回 `skill_instruction_too_large`。技能校验发生在开始回合前；此阶段拒绝以及宿主读取请求体时返回的 `body_too_large` 均标记 `X-Beeftv-Turn-Admission: rejected`，客户端可以修改输入后再次发送。其他结果未知的错误仍需读取回执，不能直接重发。
 
 跨画布回合在第一次写入每张画布前，于业务操作同一事务内保存原文。结算返回 `change.canvasChanges`；单次撤销先校验全部目标，再在一个事务内恢复。任何目标在该轮之后被修改，整组撤销返回冲突，不恢复部分画布。内置暂不提供非画布的 `conversation.message.attach`；外部调用保持开放。
 

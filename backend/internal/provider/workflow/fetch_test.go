@@ -15,7 +15,7 @@ func TestFetchSettingsAllowsEmptyPrompt(t *testing.T) {
 		if req.Kind != "" {
 			t.Fatalf("settings fetch kind = %q, want empty", req.Kind)
 		}
-		return []byte(`{"code":0,"data":{"prompt":""}}`), "application/json", nil
+		return []byte(`{"code":1,"msg":"ignored","data":{"prompt":""}}`), "application/json", nil
 	}}
 	client := &Client{Requests: exec}
 	result, err := client.FetchSettingsWorkflow(context.Background(), Config{APIKey: "k", BaseURL: "https://www.runninghub.cn"}, FetchRequest{
@@ -42,13 +42,13 @@ func TestFetchSettingsAllowsEmptyPrompt(t *testing.T) {
 	}
 }
 
-func TestFetchSettingsRejectsUpstreamFailureAndMalformedSchema(t *testing.T) {
+func TestFetchSettingsRejectsMalformedSchemaRegardlessOfCode(t *testing.T) {
 	for name, body := range map[string]string{
-		"business failure with data": `{"code":1,"msg":"workflow not available","data":{"prompt":""}}`,
-		"missing prompt":             `{"code":0,"data":{}}`,
-		"null prompt":                `{"code":0,"data":{"prompt":null}}`,
-		"number prompt":              `{"code":0,"data":{"prompt":42}}`,
-		"JSON null":                  `{"code":0,"data":{"prompt":"null"}}`,
+		"nonzero code without schema": `{"code":1,"msg":"workflow not available","data":{}}`,
+		"missing prompt":              `{"code":0,"data":{}}`,
+		"null prompt":                 `{"code":0,"data":{"prompt":null}}`,
+		"number prompt":               `{"code":0,"data":{"prompt":42}}`,
+		"JSON null":                   `{"code":0,"data":{"prompt":"null"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			exec := &scriptedExecutor{handler: func(Request) ([]byte, string, error) {
@@ -75,6 +75,30 @@ func TestFetchSettingsParsesStringPrompt(t *testing.T) {
 	fields, _ := result["fields"].([]map[string]any)
 	if len(fields) == 0 {
 		t.Fatalf("expected inferred fields, got %#v", result["fields"])
+	}
+}
+
+func TestFetchSettingsNonzeroCodeKeepsValidSchema(t *testing.T) {
+	workflowJSON := map[string]any{"3": map[string]any{"class_type": "CLIPTextEncode", "inputs": map[string]any{"text": "hi"}}}
+	encoded, _ := json.Marshal(workflowJSON)
+	for name, prompt := range map[string]any{"string": string(encoded), "object": workflowJSON} {
+		t.Run(name, func(t *testing.T) {
+			body, _ := json.Marshal(map[string]any{"code": 1, "data": map[string]any{"prompt": prompt}})
+			exec := &scriptedExecutor{handler: func(Request) ([]byte, string, error) {
+				return body, "application/json", nil
+			}}
+			result, err := (&Client{Requests: exec}).FetchSettingsWorkflow(context.Background(), Config{APIKey: "k"}, FetchRequest{WorkflowID: "wf-1", Capability: "image"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			fields, _ := result["fields"].([]map[string]any)
+			if len(fields) == 0 {
+				t.Fatalf("nonzero code dropped valid schema: %#v", result)
+			}
+			if _, exists := result["raw"]; exists {
+				t.Fatal("settings metadata must not expose raw upstream response")
+			}
+		})
 	}
 }
 
