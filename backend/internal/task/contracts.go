@@ -32,6 +32,7 @@ type CreateRequest struct {
 // TimelineTranscriptionCreateRequest is the HTTP/local-port command for a
 // whisper.cpp transcription task. ClientOperationID is optional.
 type TimelineTranscriptionCreateRequest struct {
+	Model             string `json:"model,omitempty"`
 	ResourceID        string `json:"resourceId"`
 	Language          string `json:"language"`
 	ProjectID         string `json:"projectId"`
@@ -72,8 +73,10 @@ type TimelineRenderInput struct {
 // TimelineTranscriptionInput is the durable local-executor payload for
 // transcription tasks.
 type TimelineTranscriptionInput struct {
-	ResourceID string `json:"resourceId"`
-	Language   string `json:"language"`
+	Model          string `json:"model,omitempty"`
+	ManagedTokenID string `json:"managedTokenId,omitempty"`
+	ResourceID     string `json:"resourceId"`
+	Language       string `json:"language"`
 }
 
 const (

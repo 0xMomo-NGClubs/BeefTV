@@ -128,10 +128,27 @@ func (s *Service) CreateTimelineTranscriptionTask(userID string, req TimelineTra
 	if !transcription.IsTranscribableMIME(resource.MimeType) {
 		return nil, kernel.BadAuthRequest(OnlyAudioVideoTranscriptionMessage)
 	}
+	managedTokenID := ""
+	req.Model = strings.TrimSpace(req.Model)
+	if req.Model != "" {
+		if s.deps.BindTranscriptionModel == nil {
+			return nil, kernel.BadAuthRequest("云端转写暂不可用")
+		}
+		managedTokenID, err = s.deps.BindTranscriptionModel(req.Model)
+		if err != nil {
+			return nil, err
+		}
+	}
 	input, err := marshalLocalExecutorInput(TimelineTranscriptionInput{
-		ResourceID: resourceID,
-		Language:   strings.TrimSpace(req.Language),
+		Model:          strings.TrimSpace(req.Model),
+		ManagedTokenID: managedTokenID,
+		ResourceID:     resourceID,
+		Language:       strings.TrimSpace(req.Language),
 	})
+	if req.Model != "" {
+		kind.Provider = "beefapi"
+		kind.Model = strings.TrimSpace(req.Model)
+	}
 	if err != nil {
 		return nil, err
 	}

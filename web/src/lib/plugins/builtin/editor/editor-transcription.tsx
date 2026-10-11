@@ -1,4 +1,4 @@
-// 转写由后端 whisper.cpp 任务执行；前端只提交资源 ID、观察任务状态，
+// 转写由后端任务执行；前端只提交资源和模型 ID、观察任务状态，
 // 并将成功结果转换为 SrtEntry[]，通过 rebuildSubtitleClips 原子替换字幕轨道快照。
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -21,6 +21,8 @@ import { captureUserScope } from "@/lib/user-scope-guard";
 import type { TimelineTranscriptionSegment } from "@/services/api/timeline-tasks";
 import type { ProjectAsset } from "@/services/api/projects";
 import type { SrtEntry } from "@/types/timeline";
+import { getTranscriptionModels } from "@/services/api/timeline-tasks";
+import type { ChannelModelCatalogItem } from "@/lib/channel-model-catalog";
 
 const WHISPER_WAIT_TIMEOUT_MS = 25 * 60 * 1000;
 
@@ -39,6 +41,7 @@ export function EditorTranscription() {
     const runningRef = useRef(false);
     const observationRef = useRef<AbortController | null>(null);
     const submitIntentRef = useRef<LocalExecutorIntentState | null>(null);
+    const catalogRequestRef = useRef(0);
     projectIdRef.current = projectId;
     useEffect(() => {
         mountedRef.current = true;
@@ -58,6 +61,28 @@ export function EditorTranscription() {
     const [progressLabel, setProgressLabel] = useState<string | null>(null);
     const [message, setMessage] = useState<string | null>(null);
     const [failed, setFailed] = useState(false);
+    const [model, setModel] = useState("");
+    const [models, setModels] = useState<ChannelModelCatalogItem[]>([]);
+    const [catalogError, setCatalogError] = useState("");
+    const [catalogLoading, setCatalogLoading] = useState(false);
+    const refreshModels = async () => {
+        const requestID = ++catalogRequestRef.current;
+        setCatalogLoading(true);
+        setCatalogError("");
+        setModels([]);
+        setModel("");
+        try {
+            const result = await getTranscriptionModels({ expectedScope: captureUserScope() });
+            if (!mountedRef.current || catalogRequestRef.current !== requestID) return;
+            setModels(result);
+            setModel(current => result.some(item => item.id === current) ? current : "");
+            if (!result.length) setCatalogError("当前连接没有可用的云端转写模型");
+        } catch (error) {
+            if (mountedRef.current && catalogRequestRef.current === requestID) setCatalogError(error instanceof Error ? error.message : "读取转写模型失败");
+        } finally {
+            if (mountedRef.current && catalogRequestRef.current === requestID) setCatalogLoading(false);
+        }
+    };
 
     useEffect(() => {
         if (selectedId === null && transcribableAssets.length > 0) {
@@ -97,7 +122,7 @@ export function EditorTranscription() {
         const observer = new AbortController();
         observationRef.current?.abort();
         observationRef.current = observer;
-        const frozenInputKey = localExecutorFrozenInputKey(["timeline_transcription", originalProjectId, resourceId]);
+        const frozenInputKey = localExecutorFrozenInputKey(["timeline_transcription", originalProjectId, resourceId, model]);
         const clientOperationId = nextLocalExecutorClientOperationId(submitIntentRef.current, frozenInputKey);
         submitIntentRef.current = { clientOperationId, frozenInputKey };
         setRunning(true);
@@ -113,6 +138,7 @@ export function EditorTranscription() {
             const { task, result } = await runOwnedTimelineTranscription({
                 session,
                 resourceId,
+                model: model || undefined,
                 projectId: originalProjectId,
                 clientOperationId,
                 timeoutMs: WHISPER_WAIT_TIMEOUT_MS,
@@ -173,6 +199,15 @@ export function EditorTranscription() {
                 ) : (
                     <>
                         <label className="mb-2 block">
+                            <span className="mb-1 block text-[11px] text-[var(--director-dock-fg)]/70">转写模型</span>
+                            <select aria-label="转写模型" value={model} disabled={running} onChange={event => setModel(event.target.value)} className="w-full rounded-md border border-[var(--director-sequencer-border)] bg-[var(--director-control-hover)] px-2 py-1.5 text-xs text-[var(--director-dock-fg-strong)]">
+                                <option value="">本地 whisper.cpp</option>
+                                {models.map(item => <option key={item.id} value={item.id}>{item.displayName || item.id} · BeefTV</option>)}
+                            </select>
+                        </label>
+                        <button type="button" disabled={catalogLoading || running} onClick={() => void refreshModels()} className="mb-2 text-xs text-[var(--director-dock-fg)] disabled:opacity-40">{catalogLoading ? "读取中…" : "读取 BeefTV 转写模型"}</button>
+                        {catalogError && <p role="alert" className="mb-2 text-xs text-[var(--director-danger)]">{catalogError}</p>}
+                        <label className="mb-2 block">
                             <span className="mb-1 block text-[11px] text-[var(--director-dock-fg)]/70">音视频素材</span>
                             <select
                                 value={selectedId ?? ""}
@@ -206,7 +241,7 @@ export function EditorTranscription() {
                             </p>
                         )}
                         <p className="mt-2 text-[11px] leading-relaxed text-[var(--director-dock-fg)]/45">
-                            由本地 whisper.cpp 识别，音视频不出本机；识别结果写入字幕轨道，可再编辑。
+                            {model ? "音频将上传到 BeefTV 云端识别，并按所选模型计费；结果写入字幕轨道，可再编辑。" : "由本地 whisper.cpp 识别，音视频不出本机；识别结果写入字幕轨道，可再编辑。"}
                         </p>
                     </>
                 )}

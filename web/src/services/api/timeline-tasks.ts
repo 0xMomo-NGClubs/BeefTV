@@ -2,11 +2,22 @@ import { assertCanonicalPlan, type CanonicalPlanOptions, type CanonicalSourceMet
 import { http, type HttpRequestConfig } from "@/services/api/request";
 import type { GenerationTask } from "@/services/api/task-center";
 import type { TimelineProject } from "@/types/timeline";
+import type { ChannelModelCatalogItem } from "@/lib/channel-model-catalog";
+import { getBeefAPIConnectionEpoch } from "@/services/api/beefapi-connection";
+import { UserScopeAbandonedError } from "@/lib/user-scope-guard";
+
+export async function getTranscriptionModels(config?: HttpRequestConfig) {
+    const connectionEpoch = getBeefAPIConnectionEpoch();
+    const result = await http.post<{ models: ChannelModelCatalogItem[] }>("/beefapi/connection/models", {}, config);
+    if (connectionEpoch !== getBeefAPIConnectionEpoch()) throw new UserScopeAbandonedError();
+    return result.models.filter(item => item.supportedEndpointTypes?.includes("audio.transcriptions"));
+}
 
 // 时间线字幕转写任务 API。
 // 创建入参与后端 TimelineTranscriptionCreateRequest 保持同名字段，结果由任务中心统一查询。
 
 export type TimelineTranscriptionCreateRequest = {
+    model?: string;
     resourceId: string;
     language?: string;
     projectId?: string;
