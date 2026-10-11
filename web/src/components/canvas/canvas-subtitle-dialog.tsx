@@ -3,7 +3,7 @@ import { App, Button, ColorPicker, Input, InputNumber, Progress, Segmented } fro
 import { AppModal } from "@/components/ui/product/app-modal";
 import { Switch } from "@/components/ui/base/switch";
 import { Captions, FileDown, FileUp, ListPlus, LoaderCircle, Plus, Scissors, Sparkles, Trash2 } from "lucide-react";
-import { saveAs } from "file-saver";
+import { reportOwnedMediaSave, saveOwnedOrBrowserBlob } from "@/services/desktop-media-save";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
@@ -18,6 +18,7 @@ import { generateSubtitleHighlights, type SubtitleHighlightProgress } from "@/li
 import { createDefaultSubtitleStyle, type SrtEntry, type SubtitleHighlight, type SubtitlePosition, type SubtitleStyle } from "@/types/timeline";
 import type { CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
 import { SubtitleHighlightedText } from "./canvas-subtitle-text";
+import { CanvasTranscriptionControls } from "./canvas-transcription-controls";
 
 type CanvasSubtitleDialogProps = {
     node: CanvasNodeData;
@@ -257,7 +258,7 @@ export function CanvasSubtitleDialog({ node, open, projectId, config, onClose, o
             message.warning("暂无字幕可导出");
             return;
         }
-        saveAs(new Blob([content], { type: "text/plain;charset=utf-8" }), `${node.title || "subtitle"}.srt`);
+        void reportOwnedMediaSave(message, saveOwnedOrBrowserBlob(`${node.title || "subtitle"}.srt`, new Blob([content], { type: "text/plain;charset=utf-8" })));
     };
 
     const runAiHighlight = async () => {
@@ -504,6 +505,9 @@ export function CanvasSubtitleDialog({ node, open, projectId, config, onClose, o
     return (
         <AppModal className="canvas-subtitle-dialog" title={title} open={open} centered footer={null} width={1120} destroyOnHidden onCancel={onClose} flush>
             <div className="flex h-[min(72vh,680px)] min-h-[420px] flex-col text-sm" style={{ color: theme.node.text }}>
+                <CanvasTranscriptionControls key={`${projectId}:${node.id}:${node.metadata?.storageKey || ""}`} projectId={projectId} nodeId={node.id}
+                    resourceId={resourceIdFromStorageKey(node.metadata?.storageKey || "")} disabled={running} onRunningChange={setRunning}
+                    onResult={next => { setEntries(next); setHighlights([]); }} />
                 <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.panel }}>
                     <input
                         ref={fileInputRef}

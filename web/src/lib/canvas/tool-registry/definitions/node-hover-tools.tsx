@@ -291,7 +291,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         defaultVisible: true,
         defaultOrder: 145,
         nodeToolbar: { group: "primary", order: 20 },
-        applicable: (ctx) => hasVideo(ctx),
+        applicable: (ctx) => hasVideo(ctx) || hasAudio(ctx),
         run: (ctx) => ctx.handlers.onNodeSubtitles(ctx.node!),
     },
     {

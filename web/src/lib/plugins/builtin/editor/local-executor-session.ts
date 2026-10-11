@@ -166,6 +166,7 @@ export async function runOwnedTimelineRender(input: {
 }
 
 export async function runOwnedTimelineTranscription(input: {
+    model?: string;
     session: LocalExecutorSession;
     resourceId: string;
     projectId?: string;
@@ -182,6 +183,7 @@ export async function runOwnedTimelineTranscription(input: {
             resourceId: input.resourceId,
             projectId: input.projectId,
             language: input.language,
+            model: input.model,
             clientOperationId: input.clientOperationId,
         },
         { signal: input.session.controller.signal, expectedScope: input.session.expectedScope },

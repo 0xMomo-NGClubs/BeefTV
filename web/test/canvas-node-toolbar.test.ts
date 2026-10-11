@@ -28,6 +28,18 @@ function createNodeContext(node: CanvasNodeData): ToolContext {
 }
 
 describe("canvas node toolbar model", () => {
+    test("opens the same subtitles action for uploaded audio and video", () => {
+        for (const type of [CanvasNodeType.Audio, CanvasNodeType.Video]) {
+            const node: CanvasNodeData = { id: "media", type, title: "素材", position: { x: 0, y: 0 }, width: 320, height: 180, metadata: { storageKey: "resource:media-fixture" } };
+            const ctx = createNodeContext(node);
+            const received: CanvasNodeData[] = [];
+            ctx.handlers = { onNodeSubtitles: target => received.push(target) } as ToolbarHandlers;
+            const action = resolveToolbarTools("node-hover", ctx, null).find(tool => tool.id === "subtitles");
+            expect(action).toBeDefined();
+            action?.run(ctx);
+            expect(received).toEqual([node]);
+        }
+    });
     test("preserves empty, simple and busy video states", () => {
         const ctx = createNodeContext({ id: "video", type: CanvasNodeType.Video, title: "视频", position: { x: 0, y: 0 }, width: 320, height: 180, metadata: {} });
         const emptyTools = resolveToolbarTools("node-hover", ctx, null);
