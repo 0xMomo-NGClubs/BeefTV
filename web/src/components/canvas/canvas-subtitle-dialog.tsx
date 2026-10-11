@@ -3,7 +3,7 @@ import { App, Button, ColorPicker, Input, InputNumber, Progress, Segmented } fro
 import { AppModal } from "@/components/ui/product/app-modal";
 import { Switch } from "@/components/ui/base/switch";
 import { Captions, FileDown, FileUp, ListPlus, LoaderCircle, Plus, Scissors, Sparkles, Trash2 } from "lucide-react";
-import { saveAs } from "file-saver";
+import { reportOwnedMediaSave, saveOwnedOrBrowserBlob } from "@/services/desktop-media-save";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
@@ -258,7 +258,7 @@ export function CanvasSubtitleDialog({ node, open, projectId, config, onClose, o
             message.warning("暂无字幕可导出");
             return;
         }
-        saveAs(new Blob([content], { type: "text/plain;charset=utf-8" }), `${node.title || "subtitle"}.srt`);
+        void reportOwnedMediaSave(message, saveOwnedOrBrowserBlob(`${node.title || "subtitle"}.srt`, new Blob([content], { type: "text/plain;charset=utf-8" })));
     };
 
     const runAiHighlight = async () => {
