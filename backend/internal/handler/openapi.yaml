@@ -744,7 +744,7 @@ paths:
     post:
       tags: [tasks]
       summary: 创建本机字幕转写任务
-      description: 接收待转写素材编号和可选语言。只接受当前用户已上传完成的音视频。可选 clientOperationId：同一确认重复提交回读原任务。
+      description: 接收待转写素材编号和可选语言。只接受当前用户已上传完成的音视频。省略 model 使用本地 whisper.cpp，指定 model 使用已连接 BeefTV 账号目录中的 audio.transcriptions 模型，音轨提取后最多 25 MiB。可选 clientOperationId：同一确认重复提交回读原任务。
       responses:
         "200":
           $ref: "#/components/responses/Envelope"
