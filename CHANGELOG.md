@@ -9,6 +9,13 @@ All notable public changes to BeefTV are documented in this file.
 - Added reproducible local builds, automated quality checks, and multi-architecture container publishing.
 - Standardized public artifacts, runtime identifiers, documentation, and repository links on the BeefTV name.
 
+## v1.7.16
+
+- 音频和视频节点的字幕窗口支持云端自动转写，可读取已连接 BeefTV 账号的转写模型。
+- 支持 hy-asr-3.0-preview，识别结果可编辑、保存到画布并导出 SRT；保留本地 whisper.cpp 转写。
+- 转写模型与配音、音乐生成模型分开显示，避免使用不匹配的接口。
+- 云端转写中断且结果不确定时不自动重复提交，避免重复计费。
+
 ## v1.7.15
 
 - 调整工作区侧栏、画布工具与素材面板，保留主题、更新和帮助入口。

@@ -50,6 +50,58 @@ function setupRepo(version) {
   return { dir, git, run, save, commitVersion };
 }
 
+test('v1.7.16 requires one settled native ASR and cannot waive evidence or carry forward', () => {
+  const { dir, run, save, commitVersion } = setupRepo('v1.7.16');
+  try {
+    assert.throws(() => run()); // A missing live receipt is never release-ready.
+    const sourceDigest = run('--fingerprint').trim();
+    const evidence = ['synthetic test receipt, not live acceptance'];
+    const value = {
+      version: 'v1.7.16', sourceDigest, newBudgetCNY: 1, newSpentCNY: 0.001, newPendingCNY: 0,
+      budgetCNY: null, spentCNY: null, pendingCNY: null, paidSubmissionLimit: 1,
+      liveMatrixStatus: 'not_run_owner_waived', agentAcceptanceStatus: 'not_run_owner_waived',
+      acceptanceComplete: false, releasePublished: false, releaseComplete: false,
+      ownerException: { approvedBy: 'Ender', instruction: '按建议专项验收后发布，本版豁免完整矩阵', scope: 'asr-transcription-targeted-20261011', evidence },
+      cases: [{ path: 'audio-transcription', model: 'hy-asr-3.0-preview', attempts: 1, status: 'succeeded', method: 'native',
+        clientSubmitted: true, subtitleTextVerified: true, subtitleTimingVerified: true, subtitleSaved: true, subtitleReopened: true, srtExported: true,
+        billing: 'settled', costCNY: 0.001, executedSourceDigest: sourceDigest, clientVersion: 'v1.7.16', taskId: 'fixture-task', providerRequestId: 'fixture-request', artifactSHA256: 'a'.repeat(64), evidence }],
+      priorFinancialUncertainty: { status: 'unresolved', carriedFromVersion: 'v1.7.15', pendingCNY: null, evidence },
+      review: { result: 'approved', independent: true, reviewer: 'fixture', sourceDigest, evidence },
+      upgrade: { preservedData: true, sourceDigest, evidence },
+      verification: Object.fromEntries(['asrCatalog', 'nativeSubtitleSave', 'scopeIsolation', 'noDuplicateSubmission', 'localReleaseGate', 'ci'].map(id => [id, { status: 'passed', method: 'native', sourceDigest, evidence }])),
+      packages: { status: 'pending_release_workflow', archives: null, platforms: ['darwin-arm64', 'darwin-amd64', 'windows-amd64', 'linux-amd64'],
+        windowsReleasedUpgradeAndRollbackBeforeUpload: true, finalArchiveSmokeBeforeUpload: true, linuxNativeWindowBeforeUpload: true,
+        signedManifestBeforePublish: true, publicReadbackAfterPublish: true, workflowEvidence: evidence },
+    };
+    save(value); assert.match(run(), /native ASR saved and settled within CNY 1.*package gates pending/);
+    const mutations = [
+      r => r.ownerException.instruction = '发布吧', r => r.ownerException.evidence = [],
+      r => r.ownerException.scope = 'other', r => r.ownerException.approvedBy = 'other',
+      r => r.paidSubmissionLimit = 2, r => r.newBudgetCNY = 2, r => r.cases = [], r => r.cases.push(r.cases[0]),
+      r => r.newSpentCNY = 0, r => r.newPendingCNY = null, r => r.newPendingCNY = 0.1,
+      r => r.cases[0].costCNY = 1.01, r => r.cases[0].costCNY = 0, r => r.cases[0].attempts = 2,
+      r => r.cases[0].status = 'pending', r => r.cases[0].billing = 'unknown', r => r.cases[0].method = 'mock',
+      r => r.cases[0].model = 'speech', r => r.cases[0].path = 'text-image', r => r.cases[0].executedSourceDigest = 'old',
+      r => r.cases[0].clientVersion = 'v1.7.15', r => r.cases[0].taskId = '', r => r.cases[0].providerRequestId = '',
+      r => r.cases[0].artifactSHA256 = '', r => r.cases[0].evidence = [],
+      r => r.priorFinancialUncertainty.pendingCNY = 0, r => r.priorFinancialUncertainty.evidence = [], r => r.pendingCNY = 0,
+      r => r.review.independent = false, r => r.review.sourceDigest = 'old', r => r.review.result = 'pending',
+      r => r.upgrade.preservedData = false, r => r.upgrade.sourceDigest = 'old',
+      r => r.verification.nativeSubtitleSave.method = 'mock', r => r.liveMatrixStatus = 'passed', r => r.agentAcceptanceStatus = 'passed',
+      r => r.acceptanceComplete = true, r => r.releasePublished = true, r => r.releaseComplete = true,
+      r => r.packages.platforms.pop(), r => r.packages.platforms.push('linux-amd64'), r => r.packages.status = 'passed',
+      r => r.packages.archives = {}, r => r.packages.workflowEvidence = [],
+    ];
+    for (const field of ['clientSubmitted', 'subtitleTextVerified', 'subtitleTimingVerified', 'subtitleSaved', 'subtitleReopened', 'srtExported']) mutations.push(r => r.cases[0][field] = false);
+    for (const field of ['windowsReleasedUpgradeAndRollbackBeforeUpload', 'finalArchiveSmokeBeforeUpload', 'linuxNativeWindowBeforeUpload', 'signedManifestBeforePublish', 'publicReadbackAfterPublish']) mutations.push(r => r.packages[field] = false);
+    for (const id of Object.keys(value.verification)) mutations.push(r => delete r.verification[id], r => r.verification[id].status = 'pending', r => r.verification[id].sourceDigest = 'old', r => r.verification[id].evidence = []);
+    for (const mutate of mutations) { const invalid = structuredClone(value); mutate(invalid); save(invalid); assert.throws(() => run()); }
+    commitVersion('v1.7.17');
+    save({ ...value, version: 'v1.7.17', sourceDigest: run('--fingerprint').trim() }, 'v1.7.17');
+    assert.throws(() => run());
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('v1.7.15 waiver keeps source review and all four package gates and cannot carry forward', () => {
   const { dir, run, save, commitVersion } = setupRepo('v1.7.15');
   try {
