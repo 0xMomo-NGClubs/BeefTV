@@ -40,6 +40,10 @@ try {
         return route.fulfill({ status: 500, json: { code: 500, msg: `Unexpected test route ${path}` } });
     });
     await page.goto(`http://127.0.0.1:${address.port}/__transcription_test`);
+    await page.getByRole("toolbar", { name: "节点快捷工具" }).getByRole("button", { name: "字幕", exact: true }).click().catch(async error => { console.error("Toolbar DOM:", await page.locator("body").innerHTML()); throw error; });
+    assert.equal(await page.getByTestId("selected-node").textContent(), "video-fixture");
+    await page.getByTestId("toolbar-container").evaluate(element => { element.style.width = "380px"; });
+    await page.getByRole("toolbar", { name: "节点快捷工具" }).getByRole("button", { name: "字幕", exact: true }).click();
     await page.getByRole("button", { name: "读取 BeefTV 转写模型" }).click();
     await page.getByRole("combobox", { name: "转写模型" }).click();
     await page.getByText("hy-asr-3.0-preview · BeefTV", { exact: true }).last().click();
@@ -64,8 +68,13 @@ try {
     await page.getByRole("button", { name: "重新打开" }).click();
     assert.equal(await page.getByRole("button", { name: "自动转写字幕" }).isEnabled(), true);
     assert.deepEqual(JSON.parse(await page.getByTestId("subtitles").textContent()), entries);
+    await page.getByRole("button", { name: "关闭测试窗口" }).click();
+    await page.getByRole("button", { name: "切换音视频素材" }).click();
+    await page.getByRole("toolbar", { name: "节点快捷工具" }).getByRole("button", { name: "字幕", exact: true }).click();
+    assert.equal(await page.getByTestId("selected-node").textContent(), "audio-fixture");
+    assert.equal(await page.getByRole("button", { name: "自动转写字幕" }).isVisible(), true);
     assert.deepEqual(errors, []);
-    console.log("PASS: cloud catalog selection, task submission, timed subtitle attachment, close resets UI without cancelling task or attaching late results; no paid requests");
+    console.log("PASS: real video/audio CanvasNodeToolbar subtitle button clicks, cloud catalog selection, task submission, timed subtitle attachment, close/reopen; no paid requests");
 } finally {
     await browser?.close();
     await server.close();
