@@ -25,6 +25,7 @@ import { createChannelCatalogRequests } from "@/services/channel-catalog-request
 import { modelCatalogRequestURL } from "@/lib/model-service-presets";
 import { getTransportFailureKind } from "@/services/api/request";
 import { beefAPIConnectionLabel, cancelBeefAPIConnection, disconnectBeefAPIConnection, getBeefAPIConnection, openBeefAPIWallet, startBeefAPIConnection, type BeefAPIConnectionSummary } from "@/services/api/beefapi-connection";
+import { recordChannelDelete, recordChannelDeleteConfirmOpen } from "./model-settings-diagnostics";
 
 type UserChannelConnection = "openai" | "gemini";
 type ChannelSettingsPaneProps = {
@@ -214,6 +215,7 @@ export function ChannelSettingsPane({ onOpenDiagnostics, onOpenModels, onOpenRun
             const saved = getModelConfigPersistenceState();
             if (saved.status === "error" || saved.dirty) throw new Error(saved.error || "删除尚未保存");
             setDeleteFailures((items) => { const next = { ...items }; delete next[id]; return next; });
+            recordChannelDelete({ scope: channel?.scope, before: latest.channels.length, after: next.channels.length });
             message.success("渠道已删除并保存");
         } catch (error) {
             const detail = error instanceof Error ? error.message : "保存失败";
@@ -423,7 +425,7 @@ export function ChannelSettingsPane({ onOpenDiagnostics, onOpenModels, onOpenRun
                                             编辑
                                         </Button>
                                         {!builtinBeefAPI ? (
-                                            <Popconfirm title="删除个人模型渠道？" description="该渠道关联的模型选择会同时移除。" okText="删除" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={() => deleteChannel(channel.id)}>
+                                            <Popconfirm title="删除个人模型渠道？" description="该渠道关联的模型选择会同时移除。" okText="删除" cancelText="取消" okButtonProps={{ danger: true }} onOpenChange={recordChannelDeleteConfirmOpen} onConfirm={() => deleteChannel(channel.id)}>
                                                     <Button
                                                         title="删除渠道"
                                                         className="size-10 p-0 sm:size-8"
