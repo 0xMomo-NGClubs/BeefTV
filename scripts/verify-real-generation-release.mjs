@@ -27,6 +27,53 @@ const receipt = JSON.parse(readFileSync(`docs/release-evidence/${version}.json`,
 const fail = message => { throw new Error(`Real generation release gate: ${message}`); };
 const nonempty = value => typeof value === 'string' && value.trim() !== '';
 if (receipt.version !== version || receipt.sourceDigest !== sourceDigest) fail('receipt does not match this release source');
+// Ender's October 13 acceptance replaces the paid rerun authorization.
+// Historical native tests remain bound to the builds actually tested.
+if (version === 'v1.7.17') {
+  if (receipt.ownerException?.scope !== 'generation-delivery-owner-accepted-20261013') fail('v1.7.17 paid rerun authorization was superseded by owner acceptance');
+  const evidence = value => Array.isArray(value) && value.length > 0 && value.every(nonempty);
+  const bound = value => value?.sourceDigest === sourceDigest && evidence(value.evidence);
+  const testedDigests = {
+    generationDelivery: 'd8024f245c9fdbb054a1f4adc705e783caed2e5e6b4fb07ea43e9c043aea9b3c',
+    videoFullscreen: 'a25801431e4bf791ee0ef8679fbc6ba1ddae717ac737fc0feeec730225ab6870',
+  };
+  if (receipt.ownerException.approvedBy !== 'Ender'
+    || receipt.ownerException.instruction !== '采用本次实测，不重复付费（推荐）'
+    || !evidence(receipt.ownerException.evidence)
+    || receipt.paidSubmissionLimit !== 0 || receipt.newBudgetCNY !== 0
+    || receipt.newSpentCNY !== 0 || receipt.newPendingCNY !== 0
+    || !Array.isArray(receipt.cases) || receipt.cases.length !== 0
+    || receipt.liveMatrixStatus !== 'not_run_owner_waived'
+    || receipt.agentAcceptanceStatus !== 'not_run_owner_waived'
+    || receipt.acceptanceComplete !== false) fail('v1.7.17 owner acceptance forbids new paid generation and full-suite claims');
+  for (const [id, testedDigest] of Object.entries(testedDigests)) {
+    const item = receipt.ownerAcceptance?.[id];
+    if (item?.confirmedBy !== 'Ender' || item.method !== 'native' || item.status !== 'passed'
+      || item.testedSourceDigest !== testedDigest || item.testedSourceDigest === sourceDigest
+      || !nonempty(item.instruction) || !evidence(item.evidence)) fail(`v1.7.17 missing owner native acceptance: ${id}`);
+  }
+  if (receipt.budgetCNY !== null || receipt.spentCNY !== null || receipt.pendingCNY !== null
+    || receipt.priorFinancialUncertainty?.status !== 'unresolved'
+    || receipt.priorFinancialUncertainty.carriedFromVersion !== 'v1.7.16'
+    || receipt.priorFinancialUncertainty.pendingCNY !== null
+    || !evidence(receipt.priorFinancialUncertainty.evidence)) fail('v1.7.17 must retain historical financial uncertainty');
+  if (receipt.review?.result !== 'approved' || receipt.review.independent !== true
+    || !nonempty(receipt.review.reviewer) || !bound(receipt.review)
+    || receipt.upgrade?.preservedData !== true || !bound(receipt.upgrade)) fail('v1.7.17 requires current-source review and data preservation');
+  for (const id of ['generationDelivery', 'imageRecoveryBudget', 'noDuplicateSubmission', 'localReleaseGate', 'ci', 'videoFullscreen']) {
+    if (receipt.verification?.[id]?.status !== 'passed' || !bound(receipt.verification[id])) fail(`v1.7.17 missing targeted evidence: ${id}`);
+  }
+  const packages = receipt.packages;
+  const platforms = ['darwin-arm64', 'darwin-amd64', 'windows-amd64', 'linux-amd64'];
+  if (!Array.isArray(packages?.platforms) || JSON.stringify([...packages.platforms].sort()) !== JSON.stringify([...platforms].sort())
+    || packages.status !== 'pending_release_workflow' || packages.archives != null
+    || receipt.releasePublished !== false || receipt.releaseComplete !== false
+    || packages.windowsReleasedUpgradeAndRollbackBeforeUpload !== true || packages.finalArchiveSmokeBeforeUpload !== true
+    || packages.linuxNativeWindowBeforeUpload !== true || packages.signedManifestBeforePublish !== true
+    || packages.publicReadbackAfterPublish !== true || !evidence(packages.workflowEvidence)) fail('v1.7.17 must enforce all four final-package gates');
+  console.log('v1.7.17 owner native acceptance; no new paid generation; full matrix and assistant suite NOT run; four-platform package gates pending.');
+  process.exit(0);
+}
 // One native ASR acceptance only. This does not certify the image/video matrix
 // or the assistant suite, and never authorizes an additional paid attempt.
 if (version === 'v1.7.16' && receipt.ownerException?.scope === 'asr-transcription-targeted-20261011') {

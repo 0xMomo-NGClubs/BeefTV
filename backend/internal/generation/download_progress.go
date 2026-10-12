@@ -62,29 +62,28 @@ func (r *progressReader) Read(p []byte) (int, error) {
 // progress for one task. It is inert when the runtime has no Delivery port.
 type videoDownloadReporter struct {
 	port       DeliveryProgressPort
-	taskID     string
 	attempt    int
 	downloaded int64
 	rate       outbound.ProgressRate
 }
 
-func newVideoDownloadReporter(port DeliveryProgressPort, taskID string) *videoDownloadReporter {
+func newVideoDownloadReporter(port DeliveryProgressPort) *videoDownloadReporter {
 	if port == nil {
 		return nil
 	}
-	return &videoDownloadReporter{port: port, taskID: taskID}
+	return &videoDownloadReporter{port: port}
 }
 
 func (r *videoDownloadReporter) report(state string, downloaded, total int64) {
 	// A count that drops within one attempt means the body restarted (for
 	// example the proxy retry after a failed direct read); speed starts over.
-	if downloaded < r.downloaded {
+	if downloaded == 0 || downloaded < r.downloaded {
 		r.rate = outbound.ProgressRate{}
 	}
 	r.downloaded = downloaded
 	now := time.Now()
 	r.rate.Observe(now, downloaded)
-	r.port.ReportDelivery(r.taskID, outbound.ResumableProgress{
+	r.port.ReportDelivery(outbound.ResumableProgress{
 		DownloadedBytes: downloaded,
 		TotalBytes:      total,
 		BytesPerSecond:  r.rate.Rate(now, downloaded),
@@ -108,21 +107,25 @@ func (r *videoDownloadReporter) beginAttempt(ctx context.Context, attempt int) c
 	})
 }
 
-// waitForRetry reports the next attempt as waiting for the provider to make the
-// result ready, before the retry sleep begins.
-func (r *videoDownloadReporter) waitForRetry(nextAttempt int) {
+// These downloads restart from zero. Only an explicit pending response means
+// the provider is still preparing the file; transport failures mean retrying.
+func (r *videoDownloadReporter) waitForRetry(nextAttempt int, pending bool) {
 	if r == nil {
 		return
 	}
 	r.attempt = nextAttempt
 	r.rate = outbound.ProgressRate{}
 	r.downloaded = 0
-	r.report("waiting", 0, -1)
+	state := "retrying"
+	if pending {
+		state = "waiting"
+	}
+	r.report(state, 0, -1)
 }
 
 func (r *videoDownloadReporter) clear() {
 	if r == nil {
 		return
 	}
-	r.port.ClearDelivery(r.taskID)
+	r.port.ClearDelivery()
 }

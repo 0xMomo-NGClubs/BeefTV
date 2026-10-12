@@ -182,10 +182,16 @@ async function pollMaterializedGenerationOutput(
         if (state.signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
         if (!state.isCurrent()) throw new DOMException("The canvas operation was abandoned", "AbortError");
         assertBindDispatchScope(state.expectedScope, state.liveScope);
+        // A materialized ID can outlive its resource. Repeated bind refusals
+        // share this deadline even when the task still reports that ID.
+        if (state.now() - state.startedAt >= GENERATION_MATERIALIZATION_BUDGET_MS) throw new CanvasGenerationMaterializationError(new Error("生成结果取回或写入画布超时，请继续取回"));
         if (!skipCheck) {
             if (generationTaskOutputMaterialized(task, state.outputIndex)) return task;
+            const deliveryCode = generationTaskOutput(task, state.outputIndex)?.materializationErrorCode || task.stage;
+            if (deliveryCode === "delivery_paused" || deliveryCode === "delivery_timed_out") {
+                throw new CanvasGenerationMaterializationError(new Error(deliveryCode === "delivery_paused" ? "已停止取回，可继续取回原结果" : "结果取回超时，可继续取回原结果"));
+            }
             if (generationTaskOutputPermanentlyFailed(task, state.outputIndex)) throw new CanvasGenerationMaterializationError(new Error(task.resultState || task.error || "生成结果下载失败"));
-            if (state.now() - state.startedAt > GENERATION_MATERIALIZATION_BUDGET_MS) throw new CanvasGenerationMaterializationError(new Error("生成结果下载超时"));
         }
         await state.sleep(materializationPollDelay(attempt), state.signal);
         attempt += 1;

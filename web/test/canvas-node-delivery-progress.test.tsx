@@ -16,7 +16,7 @@ mock.module("@/stores/use-generation-delivery-progress", () => ({
 const { CanvasNodeContent } = await import("@/components/canvas/canvas-node-content");
 
 function render(node: CanvasNodeData) {
-    return renderToStaticMarkup(<CanvasNodeContent node={node} theme={canvasThemes.dark} isEditingContent={false} textareaRef={createRef<HTMLTextAreaElement>()} isBatchRoot={false} batchCount={0} batchExpanded={false} batchOpening={false} batchRecovering={false} onContentChange={() => {}} onStopEditing={() => {}} mentionReferences={[]} />);
+    return renderToStaticMarkup(<CanvasNodeContent node={node} theme={canvasThemes.dark} isEditingContent={false} textareaRef={createRef<HTMLTextAreaElement>()} isBatchRoot={false} batchCount={0} batchExpanded={false} batchOpening={false} batchRecovering={false} onContentChange={() => {}} onStopEditing={() => {}} onCancelTask={() => {}} mentionReferences={[]} />);
 }
 
 const loadingVideo: CanvasNodeData = { id: "video-1", type: CanvasNodeType.Video, title: "镜头", position: { x: 0, y: 0 }, width: 320, height: 220, metadata: { status: "loading", taskId: "task-1", taskStatus: "succeeded" } };
@@ -31,11 +31,11 @@ test("取回结果时节点显示进度、大小和速度，而不是「生成�
     expect(markup).not.toContain("生成中");
 });
 
-test("下载中断时显示正在续传", () => {
+test("下载中断时显示正在重试", () => {
     byTask["task-1"] = { outputIndex: 0, downloadedBytes: 2_000_000, totalBytes: 4_000_000, bytesPerSecond: 0, state: "retrying" };
     const markup = render(loadingVideo);
     delete byTask["task-1"];
-    expect(markup).toContain("下载中断，正在续传");
+    expect(markup).toContain("下载中断，正在重试");
     expect(markup).toContain("50%");
 });
 
@@ -43,6 +43,8 @@ test("任务已成功但还没有进度时显示正在取回结果", () => {
     const markup = render(loadingVideo);
     expect(markup).toContain("正在取回结果");
     expect(markup).not.toContain("生成中");
+    expect(markup).toContain("停止取回结果");
+    expect(markup).not.toContain("取消生成任务");
 });
 
 test("结果已保留的失败节点提供「继续取回」", () => {
