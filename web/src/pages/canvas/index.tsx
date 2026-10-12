@@ -22,7 +22,7 @@ import { reportOwnedMediaSave } from "@/services/desktop-media-save";
 import { loadCanvasProjectForEditing, saveRemoteUserDataNow } from "@/services/local-workspace-sync";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { usesBrowserLocalResourceStore } from "@/services/workspace-resource-storage";
-import { createLocalCanvasProject, deleteLocalCanvasProjects, hydrateLocalCanvasProjectsFromBackend, syncLocalCanvasProjectToBackend } from "@/services/local-workspace-repository";
+import { beginLocalCanvasProject, deleteLocalCanvasProjects, hydrateLocalCanvasProjectsFromBackend, syncLocalCanvasProjectToBackend } from "@/services/local-workspace-repository";
 import { createWorkspaceCanvasProject } from "@/services/workspace-project-repository";
 import { listWorkspaceCanvasProjectsPage, type CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { useUserStore } from "@/stores/use-user-store";
@@ -52,9 +52,7 @@ export default function CanvasPage() {
     const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
     const loadMoreRef = useRef<HTMLDivElement>(null);
     const [loadedProjectCount, setLoadedProjectCount] = useState(50);
-    const [openingProjectId, setOpeningProjectId] = useState("");
     const [creationError, setCreationError] = useState(false);
-    const openingProjectIdRef = useRef("");
     const hydrated = useCanvasStore((state) => state.hydrated);
     const localProjects = useCanvasStore((state) => state.projects);
     const folders = useCanvasStore((state) => state.folders);
@@ -118,18 +116,16 @@ export default function CanvasPage() {
     }, []);
     const enterProject = useCallback(
         (id: string) => {
-            if (openingProjectIdRef.current) return;
-            openingProjectIdRef.current = id;
-            setOpeningProjectId(id);
             preloadProject();
-            window.requestAnimationFrame(() => navigate(`/canvas/${id}${forwardedQuery}`));
+            navigate(`/canvas/${id}${forwardedQuery}`);
         },
         [forwardedQuery, navigate, preloadProject],
     );
     const createAndEnter = () => {
         setCreationError(false);
-        void createLocalCanvasProject("未命名项目").then(({ id }) => {
-            // 允许浏览器验收脚本在项目库内保留新卡片，真实用户仍沿用 LibTV 的直接进入画布行为。
+        const { id, saved } = beginLocalCanvasProject("未命名项目");
+        void saved.then(() => {
+            // Only enter after the desktop repository has accepted the new canvas.
             if (searchParams.get("stay") !== "1") enterProject(id);
         }).catch((error) => {
             setCreationError(true);
@@ -267,15 +263,17 @@ export default function CanvasPage() {
         // screen forever after an app restart, even though the local store is
         // already ready. Hosted mode still waits for both session and library.
         if (!hydrated || (remoteMode && (!sessionHydrated || !libraryQuery.isSuccess)) || autoOpenRef.current || (mode !== "new" && mode !== "recent" && mode !== "handoff")) return;
-        if (!remoteMode && (canvasHealth.loading || canvasHealth.error)) return;
+        // A new local canvas can be created while older projects are still
+        // hydrating. Waiting for every historical canvas leaves this route on
+        // the loading screen when one large project or cache write is slow.
+        if (!remoteMode && mode !== "new" && (canvasHealth.loading || canvasHealth.error)) return;
         autoOpenRef.current = true;
         if (mode === "recent" && projects[0]?.id) {
             enterProject(projects[0].id);
             return;
         }
-        void createLocalCanvasProject("未命名项目").then(({ id }) => {
-            enterProject(id);
-        }).catch((error) => {
+        const { id, saved } = beginLocalCanvasProject("未命名项目");
+        void saved.then(() => enterProject(id)).catch((error) => {
             setCreationError(true);
             message.error(error instanceof Error ? error.message : "创建项目失败，请重试");
         });
@@ -413,7 +411,6 @@ export default function CanvasPage() {
                                 }}
                                 onClick={() => enterProject(project.id)}
                                 onPrefetch={preloadProject}
-                                opening={openingProjectId === project.id}
                             />
                         ))}
                     </CollectionGrid>
