@@ -16,6 +16,7 @@ import { ensureMediaNodeMinimumSize } from "@/lib/canvas/canvas-node-size";
 import { interruptFileUpload } from "@/lib/canvas/canvas-file-upload";
 import { isCanvasWorkflowProvider, resolveCanvasWorkflowProvider } from "@/lib/canvas/canvas-workflow";
 import { workflowParameterDefaults } from "@/lib/workflow-video-controls";
+import { workflowPromptTargets } from "@/lib/workflow-prompt-mapping";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasImageGenerationType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasVideoEditOperation } from "@/types/canvas";
 import type { ReferenceImage } from "@/types/image";
@@ -161,7 +162,7 @@ export async function runCanvasGenerationTaskToConsumer(
         if (input.signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
         assertUserScope(expectedScope);
         if (!completedTask) throw new Error("生成任务缺少成功终态");
-        const taskForConsumer = input.mode === "text" && completedTask.type === "canvas_text" && result.text
+        const taskForConsumer = input.mode === "text" && completedTask.type === "canvas_text" && result.text && !result.outputs
             ? hydrateCompletedTextTask(completedTask, result.text)
             : completedTask;
         try {
@@ -475,7 +476,7 @@ export function generationWorkflowMetadata(config: AiConfig): Pick<CanvasNodeMet
 }
 
 export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode, requirements?: ModelRequirements): AiConfig {
-    const workflowProvider = mode !== "text" && resolveCanvasWorkflowProvider(node?.metadata) === "runninghub" ? "runninghub" : "model";
+    const workflowProvider = resolveCanvasWorkflowProvider(node?.metadata) === "runninghub" ? "runninghub" : "model";
     const defaultModel = mode === "image" ? config.imageModel : mode === "video" ? config.videoModel : mode === "audio" ? config.audioModel : config.textModel;
     const fallbackModel = mode === "image" ? defaultConfig.imageModel : mode === "video" ? defaultConfig.videoModel : mode === "audio" ? defaultConfig.audioModel : defaultConfig.textModel;
     const storedModel = resolveCanvasGenerationModel(config, node?.metadata?.model, mode);
@@ -591,6 +592,8 @@ export function resolveCanvasGenerationModel(config: AiConfig, model: string | u
 function applyWorkflowParameterValues(fields: WorkflowFieldMapping[] | undefined, values: Record<string, unknown>) {
     if (!fields?.length || !Object.keys(values).length) return fields;
     return fields.map((field) => {
+        // A prompt binding takes precedence over values saved before it was mapped.
+        if (workflowPromptTargets([field], true).length) return field;
         const key = workflowFieldKey(field);
         const randomKey = workflowFieldRandomKey(field);
         const hasValue = workflowFieldHasStoredValue(field, values);

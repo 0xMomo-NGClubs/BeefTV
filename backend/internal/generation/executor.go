@@ -205,7 +205,7 @@ func setExecutionStage(ctx context.Context, runtime Runtime, stage string) error
 }
 
 func applyCanvasTextStreaming(taskType string, input *Input) {
-	if input == nil || input.Mode != "text" || !strings.HasPrefix(strings.TrimSpace(taskType), "canvas_text") {
+	if input == nil || input.Mode != "text" || workflow.IsProviderInterface(input.Config.InterfaceType) || !strings.HasPrefix(strings.TrimSpace(taskType), "canvas_text") {
 		return
 	}
 	requestedStream := input.TextOptions.Stream == nil || *input.TextOptions.Stream
@@ -247,28 +247,30 @@ func validateInterfaceForContext(ctx context.Context, mode, interfaceType string
 
 func workflowConfig(config Config) workflow.Config {
 	return workflow.Config{
-		InterfaceType:         config.InterfaceType,
-		BaseURL:               config.BaseURL,
-		APIKey:                config.APIKey,
-		Headers:               config.Headers,
-		Model:                 config.Model,
-		Size:                  config.Size,
-		Quality:               config.Quality,
-		TransparentBackground: config.TransparentBackground,
-		Count:                 config.Count,
-		VideoSeconds:          config.VideoSeconds,
-		VQuality:              config.VQuality,
-		VideoGenerateAudio:    config.VideoGenerateAudio,
-		VideoWatermark:        config.VideoWatermark,
-		AudioVoice:            config.AudioVoice,
-		AudioFormat:           config.AudioFormat,
-		AudioSpeed:            config.AudioSpeed,
-		AudioInstructions:     config.AudioInstructions,
-		SystemPrompt:          config.SystemPrompt,
-		WorkflowID:            config.WorkflowID,
-		WebappID:              config.WebappID,
-		WorkflowJSON:          config.WorkflowJSON,
-		WorkflowFields:        config.WorkflowFields,
+		InterfaceType:           config.InterfaceType,
+		BaseURL:                 config.BaseURL,
+		APIKey:                  config.APIKey,
+		Headers:                 config.Headers,
+		Model:                   config.Model,
+		Size:                    config.Size,
+		Quality:                 config.Quality,
+		TransparentBackground:   config.TransparentBackground,
+		Count:                   config.Count,
+		VideoSeconds:            config.VideoSeconds,
+		VQuality:                config.VQuality,
+		VideoGenerateAudio:      config.VideoGenerateAudio,
+		VideoWatermark:          config.VideoWatermark,
+		AudioVoice:              config.AudioVoice,
+		AudioFormat:             config.AudioFormat,
+		AudioSpeed:              config.AudioSpeed,
+		AudioInstructions:       config.AudioInstructions,
+		SystemPrompt:            config.SystemPrompt,
+		WorkflowID:              config.WorkflowID,
+		WebappID:                config.WebappID,
+		WorkflowJSON:            config.WorkflowJSON,
+		WorkflowFields:          config.WorkflowFields,
+		OptionalImageMode:       config.OptionalImageMode,
+		PrimaryTextOutputNodeID: config.PrimaryTextOutputNodeID,
 	}
 }
 

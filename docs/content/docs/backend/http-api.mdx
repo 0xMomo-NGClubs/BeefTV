@@ -55,17 +55,25 @@ Wails 和浏览器开发模式共用同一套 `127.0.0.1` HTTP 合同。路由�
 
 配置及字段映射由本地后端持久保存；浏览器缓存不保存密钥。独立企业级上传 Key 输入暂时隐藏，上传不读取旧的 `uploadApiKey`。参数查询不会创建生成任务。测试画布和正式生成仍通过正常任务入口，可能产生供应商费用；ComfyUI API JSON 编辑不代表已经接入本机 ComfyUI 服务。
 
+提示词目标复用 `config.workflowFields[].source = "prompt"`，可绑定多个节点字段。节点输入与连线文字合并后，通过任务的 `prompt` 提交到这些字段；`enabled = false` 表示不覆盖该字段，清除 `source` 后按字段固定值提交。显式提供字段映射时，后端不再为未绑定的提示词自动选择替代字段；仅完全没有字段策略的配置允许根据工作流推断目标。空提示词保留上游工作流原值，测试画布遵循同样规则。
+
 参数拉取使用发起时的站点、凭据和账号身份；这些身份发生变化时立即取消当前请求，写回前再次检查。即使站点或凭据在同一轮修改后又恢复原值，旧请求也不能更新当前工作流配置。
 
 带参考图片、视频、音频或蒙版的任务先保存为本地资源，后端通过 owner 归属校验读取字节，再调用 RunningHub `/openapi/v2/media/upload/binary`（multipart `file`、`Authorization: Bearer <apiKey>`）。上传必须返回业务码 `0` 和有效的 `data.fileName`；上传失败不提交工作流。返回的 `fileName` 按字段槽位填入 `nodeInfoList[].fieldValue`，不使用 `download_url` 替代 ComfyUI 加载节点路径。Workflow 提交至 `/task/openapi/create`，App 提交至 `/task/openapi/ai-app/run`；上传、参数查询、提交和轮询共用配置中的 `apiKey`。恢复已有上游任务只查询原任务，不重新上传或创建。上传资源用于任务输入，不作为永久云端资源库。
 
-工作流任务的 `resultJson.outputs` 为按上游顺序保留的完整产物数组，每项包含 `id`（`output:<index>`）、`outputIndex`、`mediaType`（`image`、`video`、`audio` 或 `file`）、资源引用与媒体元数据；仅在上游提供时保留 `sourceNodeId`，不从文件顺序推断节点。产物字节逐项写入当前 owner 的资源存储，结果中使用本地资源 URL、`storageKey` 和 `resourceId`，不重复保存主输出的内联副本。原有普通模型结果仍使用对应的 `images`、`video` 或 `audio` 合同。
+Workflow 的 `config.optionalImageMode` 为 `disconnect`（默认）或 `retain`。`disconnect` 只删除未提供图片的非必填、已启用映射对应的动态 `reference_images.reference_image_N` 连线，且上游必须直接来自 `LoadImage` 的图片输出（端口 0）；固定端口、禁用映射、必填图片、蒙版和独立输出不删除。发生删除时以独立副本的完整 JSON 字符串设置请求体 `workflow`，由官方高级创建接口覆盖模板拓扑；`nodeInfoList` 继续覆盖本次上传路径、提示词及其他字段。`retain` 不发送拓扑修改，空槽位使用模板默认值。缺少完整 JSON 时先读取工作流，动态策略下读取失败则中止，不能静默回退为包含默认图片的任务。App 继续只提交公开参数。刷新和恢复不执行此逻辑，也不创建新任务。
+
+工作流任务的 `resultJson.outputs` 为按上游顺序保留的完整产物数组，每项包含 `id`（`output:<index>`）、`outputIndex`、`mediaType`（`text`、`image`、`video`、`audio` 或 `file`）；仅在上游提供时保留 `sourceNodeId`，不从文件顺序推断节点。媒体与文件产物逐项写入当前 owner 的资源存储，结果中使用本地资源 URL、`storageKey` 和 `resourceId`。文字产物以 `text` 保存在任务结果及交付记录中，不要求媒体资源或素材 ID；纯文本字段及 UTF-8 TXT 文件统一为文字产物，JSON 等其他附件保留为文件。主输出通过 `primaryOutputId` 引用，不重复保存其内联副本。原有普通模型结果仍使用对应的 `text`、`images`、`video` 或 `audio` 合同。
+
+文字工作流使用 `canvas_text` 任务与 `runninghub-workflow-text` 协议，输入仍可包含映射后的图片、视频和音频。`config.primaryTextOutputNodeId` 可指定主文字输出节点；未指定时只自动采用唯一文字结果。指定节点未返回文字或结果存在歧义时，成功任务保留完整输出集合并提供 `outputParameterWarning`，画布等待用户选择主输出。文字任务按任务状态等待最终结果，普通文字模型继续使用已有流式接口。已知 `ShellAgentPluginOutputText` 节点用于识别文字工作流的默认输入分支，独立预览分支不占用默认参考槽位，可在字段配置中手动映射。
 
 上游输出解析保留数组顺序，字段名接受已有的大小写和首尾空白变体；同一对象按固定字段优先级读取，精确拼写优先，同名变体按原键排序，避免 Go map 的遍历顺序改变输出索引。
 
 任务交付按任务 ID 与输出索引复用物化身份；图片、视频、音频进入素材库，附带文件保留为可下载资源，其就绪状态不要求媒体素材 ID。画布自动回填第一份匹配生成类型的输出，同时保存 `generationOutputs`、`generationOutputTaskId` 和 `primaryOutputId`；其他输出不覆盖当前节点。绑定结果集合时逐项核验资源归属与就绪状态。未返回匹配类型的媒体时，画布只保存结果集合并清除旧媒体预览。重新读取已有任务及展开输出不调用上游创建接口。
 
 结果面板添加媒体及选择主输出时，从 `GET /tasks/:id` 的交付记录取得 `outputs[].materializedAssetId`，与对应 `resourceId` 一起写入画布节点；素材未就绪或资源不匹配时拒绝修改节点。普通画布提交继续校验素材、资源归属及两者的关联，不接受只有资源地址的媒体节点。
+
+文字结果的添加和选择同样回读所属任务，按输出索引核对 `text` 与交付记录。工作流文字允许绑定非零输出索引；普通文字任务仍使用索引 0。文字节点按原有画布提交机制保存，可复制、下载 TXT 或连接为下游提示词；文字连接不会携带参考素材，应将对应素材继续连接至下游，并保持槽位顺序。
 
 工作流轮询将 `submitted` / `pending`、`queued`、`running`、`downloading` 映射为任务展示阶段；产物下载完毕后显示保存阶段，由任务交付流程确认最终成功。阶段更新受当前 worker 租约和取消状态约束，不伪造上游未提供的进度百分比。
 
@@ -191,7 +199,9 @@ RunningHub 工作流任务允许 `prompt` 为空，任务创建和执行均按�
 
 `GET /projects/:id/chapter-apply-receipts?taskIds=` 查询最多 100 个任务的已提交回执。页面不以更新时间猜测是否写入；没有回执的分镜结果保留待核对，确认后可直接写入，不重新生成。
 
-`POST /tasks/:id/query-provider` 用于取回失败视频任务的原有结果：校验归属、持久化的供应商任务 ID 和协议支持后，只查询状态及下载，不重新提交生成。恢复成功会保存任务结果并登记产物；正在处理时返回 `recovered=false`。没有原任务 ID 的记录不能凭本地 ID 自动找回。已发出但未取得回执的提交标记为 `submission_unknown`，阻止付费重试；明确限流、鉴权拒绝或尚未发送的请求保留对应错误类别。
+`POST /tasks/:id/query-provider` 用于刷新原任务结果。运行中、排队中或已完成的任务只读取本地权威状态，不与 Worker 重复查询；失败且已受理的 RunningHub 文字、图片、视频和音频工作流，以及支持查询的视频协议，可取回上游原有结果。服务端校验归属、持久化的供应商任务 ID 和协议支持，只查询状态及下载，不重新上传或提交生成。恢复成功会保存任务结果并登记产物，返回 `recovered=true`；上游仍在处理时返回 `recovered=false` 和 `providerStatus`。已完成的重复刷新不重复下载或入库；并发恢复由任务租约保护，冲突返回 409。取消中或没有原任务 ID 的记录不能自动恢复。已发出但未取得回执的提交标记为 `submission_unknown`，阻止付费重试；明确限流、鉴权拒绝或尚未发送的请求保留对应错误类别。
+
+工作流测试任务的列表摘要提供 `clientContext.source = "workflow_settings_test"`、`workflowId` 与 `workflowKind`，用于定位原测试任务；页面再按任务 ID 读取完整结果。摘要不返回工作流 JSON、请求配置或凭据。
 
 NewAPI Channel 2 与 BeefAPI 视频的暂时下载断连会保留原任务 ID 并继续后台取回，自动恢复最长到任务开始后 24 小时；超出窗口后可在失败任务详情手动取回。任务日志接口提供脱敏的 `summary`，不返回原始 `message` / `payload` 内容；摘要不写回数据库。
 

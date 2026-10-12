@@ -6,7 +6,7 @@ import { generationTaskCanReloadResource, generationTaskNodeId } from "@/lib/can
 import { bindBackendCanvasGenerationResult, CanvasGenerationDurableAckError } from "@/services/canvas-generation-consumer";
 import { captureUserScope, isUserScopeAbandonedError, userScopeMatches } from "@/lib/user-scope-guard";
 import { ensureCanvasNodeAsset, retryCanvasAssetSyncAfterRateLimit } from "@/services/project-asset-sync";
-import { listGenerationTasks, queryFailedVideoProviderTask, subscribeGenerationTasks, type GenerationTask } from "@/services/api/task-center";
+import { listGenerationTasks, queryGenerationTask, queryProviderTaskResult, subscribeGenerationTasks, type GenerationTask } from "@/services/api/task-center";
 import { useTaskDetails } from "@/hooks/use-task-details";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
@@ -284,17 +284,17 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
         const signal = consumerControllerRef.current.signal;
         setRetrievingTaskId(task.id);
         try {
-            const result = await queryFailedVideoProviderTask(task.id);
+            const result = await queryProviderTaskResult(task.id, { signal });
             if (signal.aborted) return;
             await queryClient.cancelQueries({ queryKey: ["task-details", projectId, task.id] });
             if (signal.aborted) return;
             queryClient.setQueryData(["task-details", projectId, task.id], (current: { task: GenerationTask; logs: unknown[] } | undefined) => ({ task: result.task, logs: current?.logs ?? [] }));
-            if (result.recovered) {
+            if (result.task.status === "succeeded") {
                 const node = nodesRef.current.find((item) => item.metadata?.taskId === task.id);
-                if (!node) throw new Error("视频已取回，请在生成历史中查看");
+                if (!node) throw new Error("结果已取回，请在生成历史中查看");
                 await applyGenerationTaskResult(node.id, result.task);
                 if (signal.aborted) return;
-                message.success("视频已取回并放回画布，未重新生成");
+                message.success("结果已取回并放回画布，未重新生成");
             } else {
                 message.info("原任务仍在处理中，请稍后再取回结果");
             }
@@ -308,6 +308,14 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
             }
         }
     }, [applyGenerationTaskResult, message, nodesRef, projectId, queryClient]);
+
+    const refreshNodeTaskResult = useCallback(async (node: CanvasNodeData) => {
+        const id = node.metadata?.taskId;
+        if (!id) throw new Error("节点没有任务记录");
+        const signal = consumerControllerRef.current.signal;
+        const task = await queryGenerationTask(id, { signal });
+        if (!signal.aborted) await retrieveTaskResult(task);
+    }, [retrieveTaskResult]);
 
     const observeSubscribedGenerationTask = useCallback(
         (taskId: string, signal: AbortSignal, onUpdate?: (task: GenerationTask) => void) =>
@@ -543,6 +551,7 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
         finishGenerationRequest,
         openNodeTaskDetails,
         retrieveTaskResult,
+        refreshNodeTaskResult,
         retrievingTaskId,
         runningNodeId,
         setRunningNodeId,

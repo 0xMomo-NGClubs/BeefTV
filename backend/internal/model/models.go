@@ -75,6 +75,7 @@ const (
 	ChannelInterfaceNovitaVideo                 ChannelInterfaceType = "novita-video"
 	ChannelInterfaceMiniMaxVideo                ChannelInterfaceType = "minimax-video"
 	ChannelInterfaceAgnesVideo                  ChannelInterfaceType = "agnes-video"
+	ChannelInterfaceRunningHubText              ChannelInterfaceType = "runninghub-workflow-text"
 	ChannelInterfaceRunningHubImage             ChannelInterfaceType = "runninghub-workflow-image"
 	ChannelInterfaceRunningHubVideo             ChannelInterfaceType = "runninghub-workflow-video"
 	ChannelInterfaceRunningHubAudio             ChannelInterfaceType = "runninghub-workflow-audio"

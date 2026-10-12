@@ -27,28 +27,30 @@ func (s *Service) workflowClient(policy *videoPollPolicy) *workflow.Client {
 
 func workflowConfigFromProvider(config providerConfig) workflow.Config {
 	return workflow.Config{
-		InterfaceType:         config.InterfaceType,
-		BaseURL:               config.BaseURL,
-		APIKey:                config.APIKey,
-		Headers:               config.Headers,
-		Model:                 config.Model,
-		Size:                  config.Size,
-		Quality:               config.Quality,
-		TransparentBackground: config.TransparentBackground,
-		Count:                 config.Count,
-		VideoSeconds:          config.VideoSeconds,
-		VQuality:              config.VQuality,
-		VideoGenerateAudio:    config.VideoGenerateAudio,
-		VideoWatermark:        config.VideoWatermark,
-		AudioVoice:            config.AudioVoice,
-		AudioFormat:           config.AudioFormat,
-		AudioSpeed:            config.AudioSpeed,
-		AudioInstructions:     config.AudioInstructions,
-		SystemPrompt:          config.SystemPrompt,
-		WorkflowID:            config.WorkflowID,
-		WebappID:              config.WebappID,
-		WorkflowJSON:          config.WorkflowJSON,
-		WorkflowFields:        config.WorkflowFields,
+		InterfaceType:           config.InterfaceType,
+		BaseURL:                 config.BaseURL,
+		APIKey:                  config.APIKey,
+		Headers:                 config.Headers,
+		Model:                   config.Model,
+		Size:                    config.Size,
+		Quality:                 config.Quality,
+		TransparentBackground:   config.TransparentBackground,
+		Count:                   config.Count,
+		VideoSeconds:            config.VideoSeconds,
+		VQuality:                config.VQuality,
+		VideoGenerateAudio:      config.VideoGenerateAudio,
+		VideoWatermark:          config.VideoWatermark,
+		AudioVoice:              config.AudioVoice,
+		AudioFormat:             config.AudioFormat,
+		AudioSpeed:              config.AudioSpeed,
+		AudioInstructions:       config.AudioInstructions,
+		SystemPrompt:            config.SystemPrompt,
+		WorkflowID:              config.WorkflowID,
+		WebappID:                config.WebappID,
+		WorkflowJSON:            config.WorkflowJSON,
+		WorkflowFields:          config.WorkflowFields,
+		OptionalImageMode:       config.OptionalImageMode,
+		PrimaryTextOutputNodeID: config.PrimaryTextOutputNodeID,
 	}
 }
 
@@ -242,12 +244,6 @@ func (workflowTime) Sleep(ctx context.Context, d time.Duration) error {
 	return sleepContext(ctx, d)
 }
 
-func (workflowTime) PollDeadline(ctx context.Context) time.Time {
-	return providerPollingDeadline(ctx)
-}
-
-func (workflowTime) LegacyPollInterval() time.Duration { return 2500 * time.Millisecond }
-
 // workflowVideoPoller maps domain PollPolicy onto app videoPollPolicy.
 // Sleep/Notify/transient retry stay in provider_video_polling.go until the
 // provider worker owns that type.
@@ -260,7 +256,7 @@ func (p workflowVideoPoller) appPolicy(policy workflow.PollPolicy) videoPollPoli
 	if p.policy != nil {
 		appPolicy = *p.policy
 	}
-	if policy.InitialDelay > 0 {
+	if policy.InitialDelay >= 0 {
 		appPolicy.InitialDelay = policy.InitialDelay
 	}
 	if policy.Interval > 0 {

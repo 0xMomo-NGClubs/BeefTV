@@ -11,6 +11,7 @@ import { CanvasWorkflowControls } from "./canvas-workflow-controls";
 import { normalizeRunningHubCapability } from "@/stores/use-config-store";
 import { workflowProviderPluginEnabled } from "@/lib/plugins/builtin/workflows";
 import { canvasWorkflowInputError } from "@/lib/canvas/canvas-workflow-inputs";
+import { isCanvasWorkflowProvider } from "@/lib/canvas/canvas-workflow";
 import { resolveGenerationWorkflowExecution } from "@/lib/generation-workflow-execution";
 import { clampPromptEditorModalSize, PROMPT_EDITOR_VIEWPORT_MARGIN } from "@/lib/canvas/canvas-prompt-editor-size";
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -131,14 +132,14 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     const config = buildNodeConfig(globalConfig, node, mode, requirements);
     const workflowActive = config.taskWorkflowProvider === "runninghub";
     const workflowStatuses = usePluginStore((state) => state.runtimeStatuses);
-    const videoWorkflows = mode === "video" && (workflowActive || workflowProviderPluginEnabled(workflowStatuses, "runninghub")) ? globalConfig.runningHub.workflows.filter((item) => normalizeRunningHubCapability(item.capability, normalizeRunningHubCapability(globalConfig.runningHub.capability)) === "video") : [];
-    const workflowOptionValue = (item: (typeof videoWorkflows)[number]) => `workflow:runninghub:${item.kind === "app" ? "app" : "workflow"}:${item.workflowId}`;
-    const selectedWorkflow = videoWorkflows.find((item) => item.workflowId === node.metadata?.runningHubWorkflowId && (item.kind === "app" ? "app" : "workflow") === (node.metadata?.runningHubWorkflowKind || "workflow"));
-    const workflowGroups = mode === "video" && (workflowActive || workflowProviderPluginEnabled(workflowStatuses, "runninghub")) ? [{key:"workflow:runninghub",label:"RunningHub",options:videoWorkflows.map((item) => ({value:workflowOptionValue(item),label:item.title || item.workflowId}))}] : [];
+    const workflowsForMode = (workflowActive || workflowProviderPluginEnabled(workflowStatuses, "runninghub")) ? globalConfig.runningHub.workflows.filter((item) => normalizeRunningHubCapability(item.capability, normalizeRunningHubCapability(globalConfig.runningHub.capability)) === mode) : [];
+    const workflowOptionValue = (item: (typeof workflowsForMode)[number]) => `workflow:runninghub:${item.kind === "app" ? "app" : "workflow"}:${item.workflowId}`;
+    const selectedWorkflow = workflowsForMode.find((item) => item.workflowId === node.metadata?.runningHubWorkflowId && (item.kind === "app" ? "app" : "workflow") === (node.metadata?.runningHubWorkflowKind || "workflow"));
+    const workflowGroups = (workflowActive || workflowProviderPluginEnabled(workflowStatuses, "runninghub")) ? [{key:"workflow:runninghub",label:"RunningHub",options:workflowsForMode.map((item) => ({value:workflowOptionValue(item),label:item.title || item.workflowId}))}] : [];
     let workflowError = "";
     if (workflowActive) {
         try {
-            if (!node.metadata?.runningHubWorkflowId) throw new Error("请选择视频工作流或 AI 应用");
+            if (!node.metadata?.runningHubWorkflowId) throw new Error("请选择工作流或 AI 应用");
             const execution = resolveGenerationWorkflowExecution(config, mode);
             workflowError = canvasWorkflowInputError(execution?.workflowFields || [], activeReferences, node.metadata?.workflowParameters || {});
         } catch (error) { workflowError = error instanceof Error ? error.message : "工作流配置不可用"; }
@@ -348,7 +349,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     };
 
     const renderComposerControls = (expanded: boolean) =>
-        simpleMode && mode !== "video" ? (
+        simpleMode && mode !== "video" && !workflowActive && !workflowsForMode.length ? (
             <div className="canvas-node-composer-footer">
                 <span className="min-w-0 truncate px-2 text-[var(--fs-tiny)]" style={{ color: theme.node.muted }}>
                     {activeReferenceCount ? `已连接 ${activeReferenceCount} 个素材` : "将使用默认模型与参数"}
@@ -376,9 +377,9 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                             placeholder={workflowActive ? "选择 RunningHub 工作流" : "选择模型"}
                             additionalGroups={workflowGroups}
                             onChange={(model) => {
-                                const workflow = videoWorkflows.find((item) => workflowOptionValue(item) === model);
+                                const workflow = workflowsForMode.find((item) => workflowOptionValue(item) === model);
                                 if (workflow && workflow === selectedWorkflow) return;
-                                onConfigChange(node.id, workflow ? { model:undefined,workflowProvider:"runninghub",runningHubWorkflowId:workflow.workflowId,runningHubWorkflowKind:workflow.kind === "app" ? "app" : "workflow",workflowParameters:{},videoStartFrameNodeId:undefined,videoEndFrameNodeId:undefined } : mode === "image" ? { model, ...defaultImageParamsForModel(config, model) } : { model, workflowProvider:"model",runningHubWorkflowId:undefined,runningHubWorkflowKind:undefined,workflowParameters:{} });
+                                onConfigChange(node.id, workflow ? { model:undefined,workflowProvider:"runninghub",runningHubWorkflowId:workflow.workflowId,runningHubWorkflowKind:workflow.kind === "app" ? "app" : "workflow",workflowParameters:{},videoStartFrameNodeId:undefined,videoEndFrameNodeId:undefined } : { model, workflowProvider:"model",runningHubWorkflowId:undefined,runningHubWorkflowKind:undefined,workflowParameters:{}, ...(mode === "image" ? defaultImageParamsForModel(config, model) : {}) });
                             }}
                             capability={mode}
                             requirements={resolvedRequirements}
@@ -408,7 +409,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                         compact={!expanded}
                         label={autoLinkLabel}
                     />
-                    {mode === "text" ? (
+                    {workflowActive ? <CanvasWorkflowControls node={node} config={globalConfig} theme={theme} references={activeReferences} onConfigChange={onConfigChange} /> : mode === "text" ? (
                         <Tooltip title={`文本生成份数（默认 1，可在生成配置中调整）`}>
                             <InputNumber
                                 size="small"
@@ -438,7 +439,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                                 onOpenChange={expanded ? undefined : onImageSettingsOpenChange}
                             />
                         </>
-                    ) : mode === "video" && workflowActive ? <CanvasWorkflowControls node={node} config={globalConfig} theme={theme} references={activeReferences} onConfigChange={onConfigChange} /> : mode === "video" ? (
+                    ) : mode === "video" ? (
                         <>
                             <CanvasCameraControlPopover
                                 cameraControl={node.metadata?.cameraControl}
@@ -1073,7 +1074,7 @@ function defaultMode(type: CanvasNodeData["type"]): CanvasNodeGenerationMode {
 }
 
 export function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasNodeGenerationMode, requirements: ModelRequirements): AiConfig {
-    if (mode === "video") return buildGenerationConfig(globalConfig, node, mode, requirements);
+    if (mode === "video" || isCanvasWorkflowProvider(node.metadata)) return buildGenerationConfig(globalConfig, node, mode, requirements);
     const defaultModel = mode === "image" ? globalConfig.imageModel : mode === "audio" ? globalConfig.audioModel : globalConfig.textModel;
     const fallbackModel = mode === "image" ? defaultConfig.imageModel : mode === "audio" ? defaultConfig.audioModel : defaultConfig.textModel;
     const preferredModel = resolveCanvasGenerationModel(globalConfig, node.metadata?.model, mode) || resolveCanvasGenerationModel(globalConfig, defaultModel, mode) || fallbackModel;

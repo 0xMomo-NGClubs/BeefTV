@@ -150,6 +150,7 @@ type Result struct {
 type TaskOutput struct {
 	OutputIndex              int               `json:"outputIndex"`
 	MediaType                string            `json:"mediaType"`
+	Text                     string            `json:"text,omitempty"`
 	ProviderArtifactRef      string            `json:"providerArtifactRef,omitempty"`
 	MaterializedAssetID      string            `json:"materializedAssetId,omitempty"`
 	MaterializationErrorCode string            `json:"materializationErrorCode,omitempty"`

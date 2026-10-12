@@ -160,6 +160,7 @@ func modelTaskOutputs(outputs []localtask.CanonicalOutput) []model.TaskOutput {
 		item := model.TaskOutput{
 			OutputIndex:              output.OutputIndex,
 			MediaType:                output.MediaType,
+			Text:                     output.Text,
 			ProviderArtifactRef:      output.ProviderArtifactRef,
 			MaterializedAssetID:      output.MaterializedAssetID,
 			MaterializationErrorCode: output.MaterializationErrorCode,

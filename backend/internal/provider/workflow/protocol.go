@@ -40,6 +40,7 @@ func runningHubOutputMimeType(rawURL string, declared string) string {
 		".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif",
 		".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".m4v": "video/mp4",
 		".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".flac": "audio/flac",
+		".txt": "text/plain",
 	} {
 		if strings.HasSuffix(pathValue, suffix) {
 			return mimeType
@@ -130,7 +131,9 @@ func runningHubOutputURLs(value interface{}) []string {
 	outputs := runningHubOutputs(value)
 	urls := make([]string, 0, len(outputs))
 	for _, output := range outputs {
-		urls = append(urls, output.URL)
+		if output.URL != "" {
+			urls = append(urls, output.URL)
+		}
 	}
 	return urls
 }
@@ -138,6 +141,7 @@ func runningHubOutputURLs(value interface{}) []string {
 type workflowOutput struct {
 	URL    string
 	NodeID string
+	Text   string
 }
 
 // Keep provider order and origin metadata; a workflow may emit several media kinds.
@@ -163,7 +167,14 @@ func runningHubOutputs(value interface{}) []workflowOutput {
 				keys = append(keys, key)
 			}
 			sort.Strings(keys)
+			text := runningHubInlineText(item, keys)
+			if strings.TrimSpace(text) != "" {
+				result = append(result, workflowOutput{Text: text, NodeID: nodeID})
+			}
 			for _, preferred := range []string{"fileUrl", "file_url", "url", "downloadUrl", "download_url", "src", "output", "outputs", "results", "files", "data", "images", "videos", "audio", "audios", "result"} {
+				if text != "" && (preferred == "fileUrl" || preferred == "file_url" || preferred == "url" || preferred == "downloadUrl" || preferred == "download_url" || preferred == "src" || preferred == "output") {
+					continue
+				}
 				visit(item[preferred], nodeID)
 				// 精确键优先，其他旧拼写按原键排序，兼容网关且不依赖 map 遍历顺序。
 				for _, key := range keys {
@@ -178,13 +189,50 @@ func runningHubOutputs(value interface{}) []workflowOutput {
 	seen := map[string]bool{}
 	deduped := make([]workflowOutput, 0, len(result))
 	for _, item := range result {
-		identity := item.NodeID + ":" + item.URL
+		identity := item.NodeID + "\x00" + item.URL + "\x00" + item.Text
 		if !seen[identity] {
 			seen[identity] = true
 			deduped = append(deduped, item)
 		}
 	}
 	return deduped
+}
+
+func runningHubInlineText(item map[string]interface{}, keys []string) string {
+	read := func(preferred string) interface{} {
+		if value, ok := item[preferred]; ok {
+			return value
+		}
+		for _, key := range keys {
+			if strings.EqualFold(strings.TrimSpace(key), preferred) {
+				return item[key]
+			}
+		}
+		return nil
+	}
+	kind := strings.ToLower(firstNonEmpty(stringValue(read("outputType")), stringValue(read("fileType"))))
+	textKind := kind == "text" || kind == "txt" || kind == "text/plain"
+	if kind != "" && !textKind {
+		return ""
+	}
+	// Media captions are not independent text outputs. A typed text artifact may
+	// expose both its text and a temporary URL; keep the inline text only.
+	if !textKind {
+		for _, key := range []string{"fileUrl", "file_url", "url", "downloadUrl", "download_url", "src"} {
+			if stringValue(read(key)) != "" {
+				return ""
+			}
+		}
+	}
+	for _, key := range []string{"text", "content", "output"} {
+		if key == "output" && !textKind {
+			continue
+		}
+		if text, ok := read(key).(string); ok && strings.TrimSpace(text) != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func runningHubRelativeOutputPath(value string) bool {
@@ -202,7 +250,7 @@ func runningHubRelativeOutputPath(value string) bool {
 			return true
 		}
 	}
-	for _, suffix := range []string{".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mov", ".m4v", ".mp3", ".wav", ".ogg", ".m4a", ".flac"} {
+	for _, suffix := range []string{".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mov", ".m4v", ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".txt"} {
 		if strings.HasSuffix(strings.Split(value, "?")[0], suffix) {
 			return true
 		}

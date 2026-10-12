@@ -156,10 +156,13 @@ func applyGenerationBindMetadata(metadata map[string]any, patch TaskOutputBind) 
 		metadata["generationOutputs"] = patch.GenerationOutputs
 		metadata["generationOutputTaskId"] = patch.TaskID
 		if patch.CollectionOnly {
-			for _, key := range []string{"primaryOutputId", "content", "storageKey", "assetId", "mimeType", "naturalWidth", "naturalHeight", "durationMs", "videoPreview"} {
+			for _, key := range []string{"primaryOutputId", "content", "richText", "storageKey", "assetId", "mimeType", "naturalWidth", "naturalHeight", "durationMs", "videoPreview"} {
 				delete(metadata, key)
 			}
 			metadata["outputParameterWarning"] = "工作流未返回当前节点类型的媒体，请在结果列表中预览或添加其他输出"
+			if patch.MediaType == "text" {
+				metadata["outputParameterWarning"] = "工作流文字输出需要确认，请在结果列表中选择主输出或检查配置"
+			}
 		} else {
 			metadata["primaryOutputId"] = fmt.Sprintf("output:%d", patch.OutputIndex)
 			delete(metadata, "outputParameterWarning")
@@ -171,6 +174,9 @@ func applyGenerationBindMetadata(metadata map[string]any, patch TaskOutputBind) 
 	}
 	if patch.Content != "" {
 		metadata["content"] = patch.Content
+		if patch.MediaType == "text" {
+			delete(metadata, "richText")
+		}
 	}
 	if patch.StorageKey != "" {
 		metadata["storageKey"] = patch.StorageKey

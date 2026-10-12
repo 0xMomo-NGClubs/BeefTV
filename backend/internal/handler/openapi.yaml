@@ -810,6 +810,26 @@ paths:
           $ref: "#/components/responses/Envelope"
         "400":
           $ref: "#/components/responses/Error"
+  /tasks/{id}/query-provider:
+    post:
+      tags: [tasks]
+      summary: 刷新原上游任务结果
+      description: 运行中或已完成的任务读取本地状态；失败且已受理的 RunningHub 工作流及支持查询的视频协议只查询原任务并恢复产物，不上传或创建新任务。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Envelope"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
   /tasks/{id}/text-events:
     get:
       tags: [tasks]
@@ -888,7 +908,7 @@ components:
           type: string
         capability:
           type: string
-          enum: [image, video, audio]
+          enum: [text, image, video, audio]
     Envelope:
       type: object
       required: [code, msg]

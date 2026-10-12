@@ -176,7 +176,7 @@ func TestPortraitQuoteRemovalDoesNotBlockAcceptedTaskRecovery(t *testing.T) {
 	if err := db.Create(&task).Error; err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.QueryFailedVideoTask(context.Background(), "local", task.ID)
+	result, err := s.QueryProviderTask(context.Background(), "local", task.ID)
 	if err != nil || result.Task.ProviderRequestID != task.ProviderRequestID || polls.Load() != 1 || posts.Load() != 0 {
 		t.Fatalf("accepted task could not resume polling without quote: error=%v polls=%d posts=%d", err, polls.Load(), posts.Load())
 	}

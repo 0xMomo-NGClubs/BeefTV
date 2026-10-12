@@ -295,7 +295,7 @@ func TaskInputUsesWorkflowProvider(input map[string]any) bool {
 
 func IsWorkflowInterfaceType(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case string(model.ChannelInterfaceRunningHubImage), string(model.ChannelInterfaceRunningHubVideo), string(model.ChannelInterfaceRunningHubAudio):
+	case string(model.ChannelInterfaceRunningHubText), string(model.ChannelInterfaceRunningHubImage), string(model.ChannelInterfaceRunningHubVideo), string(model.ChannelInterfaceRunningHubAudio):
 		return true
 	default:
 		return false

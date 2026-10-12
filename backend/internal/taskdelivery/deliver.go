@@ -177,6 +177,12 @@ func (d *Deliverer) deliverOne(tx Store, task model.Task, output localtask.Canon
 	if err != nil {
 		return err
 	}
+	if output.MediaType == "text" {
+		if !localtask.OutputReady(output) {
+			return d.commitRecorded(tx, output, item, localtask.MaterializeErrorUnsupportedShape)
+		}
+		return tx.CommitOwned(item)
+	}
 	if strings.TrimSpace(output.ResourceID) == "" {
 		if shape := localtask.UnsupportedResultShape(output); shape != "" {
 			return d.commitUnsupported(tx, task, output, shape)

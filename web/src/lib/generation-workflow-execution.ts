@@ -21,11 +21,13 @@ export type GenerationWorkflowExecution = {
     webappId: string;
     workflowJson: Record<string, unknown>;
     workflowFields: WorkflowFieldMapping[];
+    optionalImageMode: "disconnect" | "retain";
+    primaryTextOutputNodeId?: string;
 };
 
 // 画布样式计划、任务记录和后端协议必须共用同一个工作流选择结果，避免再次回退到普通模型。
 export function resolveGenerationWorkflowExecution(config: AiConfig, mode: GenerationWorkflowMode): GenerationWorkflowExecution | null {
-    const workflowProvider = mode === "text" ? "model" : config.taskWorkflowProvider || "model";
+    const workflowProvider = config.taskWorkflowProvider || "model";
     if (workflowProvider === "model") return null;
 
     if (workflowProvider === "runninghub") {
@@ -56,6 +58,8 @@ export function resolveGenerationWorkflowExecution(config: AiConfig, mode: Gener
             webappId,
             workflowJson: workflow.workflowJson || {},
             workflowFields: workflow.fields || [],
+            optionalImageMode: kind === "app" || workflow.optionalImageMode === "retain" ? "retain" : "disconnect",
+            primaryTextOutputNodeId: workflow.primaryTextOutputNodeId,
 
 		};
 	}

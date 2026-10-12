@@ -5,6 +5,10 @@ import type { GenerationOutput } from "@/lib/generation-outputs";
 import { CanvasNodeType, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 
 export function generationOutputMetadata(output: GenerationOutput): CanvasNodeMetadata {
+    if (output.mediaType === "text") {
+        if (!output.text?.trim()) throw new Error("文字输出尚未就绪，请重试");
+        return { content: output.text, richText: undefined, storageKey: undefined, assetId: undefined, mimeType: "text/plain", bytes: output.bytes, naturalWidth: undefined, naturalHeight: undefined, durationMs: undefined, videoPreview: undefined, status: "success", primaryOutputId: output.id, outputParameterWarning: undefined };
+    }
     if (!output.assetId || !output.storageKey?.startsWith("resource:")) throw new Error("生成输出素材尚未就绪，请重试");
     return {
         content: output.dataUrl || output.url, storageKey: output.storageKey,
@@ -20,12 +24,12 @@ export function addGenerationOutputNodes(nodes: CanvasNodeData[], source: Canvas
     let current = nodes;
     const added: CanvasNodeData[] = [];
     for (const output of outputs) {
-        if (output.mediaType === "file" || !output.storageKey?.startsWith("resource:")) continue;
+        if (output.mediaType === "file" || output.mediaType !== "text" && !output.storageKey?.startsWith("resource:")) continue;
         const id = `output_${taskId}_${output.outputIndex}`;
         const existing = current.find((item) => item.id === id);
         if (existing) {
             // 修复旧版本添加的资源节点，保留用户移动、命名和连线。
-            if (!existing.metadata?.assetId && existing.metadata?.generatedFromNodeId === source.id
+            if (output.mediaType !== "text" && !existing.metadata?.assetId && existing.metadata?.generatedFromNodeId === source.id
                 && existing.metadata?.storageKey === output.storageKey) {
                 const patch = generationOutputMetadata(output);
                 current = current.map((item) => item.id === id ? { ...item, metadata: { ...item.metadata, ...patch } } : item);
@@ -33,9 +37,9 @@ export function addGenerationOutputNodes(nodes: CanvasNodeData[], source: Canvas
             continue;
         }
         if (added.some((item) => item.id === id)) continue;
-        const type = output.mediaType === "image" ? CanvasNodeType.Image : output.mediaType === "audio" ? CanvasNodeType.Audio : CanvasNodeType.Video;
+        const type = output.mediaType === "text" ? CanvasNodeType.Text : output.mediaType === "image" ? CanvasNodeType.Image : output.mediaType === "audio" ? CanvasNodeType.Audio : CanvasNodeType.Video;
         const bounds = NODE_DEFAULT_SIZE[type];
-        const size = type === CanvasNodeType.Audio ? bounds : fitNodeSize(output.width || bounds.width, output.height || bounds.height, bounds.width, bounds.height);
+        const size = type === CanvasNodeType.Audio || type === CanvasNodeType.Text ? bounds : fitNodeSize(output.width || bounds.width, output.height || bounds.height, bounds.width, bounds.height);
         added.push({
             id, type, ...size, title: `${source.title || "工作流"} · 输出 ${output.outputIndex + 1}`,
             position: findAvailableGenerationGroupPosition([...current, ...added], {

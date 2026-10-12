@@ -137,6 +137,8 @@ type Summary struct {
 }
 
 type ClientContext struct {
+	WorkflowID       string `json:"workflowId,omitempty"`
+	WorkflowKind     string `json:"workflowKind,omitempty"`
 	NodeID           string `json:"nodeId,omitempty"`
 	Source           string `json:"source,omitempty"`
 	SceneID          string `json:"sceneId,omitempty"`

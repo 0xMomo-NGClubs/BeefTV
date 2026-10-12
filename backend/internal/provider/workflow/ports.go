@@ -56,8 +56,6 @@ type PluginAvailability interface {
 type TimePolicy interface {
 	Now() time.Time
 	Sleep(ctx context.Context, d time.Duration) error
-	PollDeadline(ctx context.Context) time.Time
-	LegacyPollInterval() time.Duration
 }
 
 // PollPolicy is the neutral subset of app videoPollPolicy that this domain
@@ -72,10 +70,11 @@ type PollPolicy struct {
 	RetryTransient        bool
 }
 
-// PollOutcome is one video-poll query result.
+// PollOutcome is one workflow task query result.
 type PollOutcome struct {
 	Done   bool
 	Result map[string]interface{}
+	Status string
 }
 
 // VideoPoller composes the shared provider video poll/download retry loop.

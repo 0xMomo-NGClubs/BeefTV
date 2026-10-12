@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { WorkflowFieldMappingEditor } from "@/components/workflow-field-mapping-editor";
 import { WorkflowVideoControlsEditor } from "@/components/workflow-video-controls-editor";
+import { WorkflowPromptMappingEditor } from "@/components/workflow-prompt-mapping-editor";
 import { WorkflowGraphEditor } from "@/components/workflow-graph-editor";
 import { WorkflowTestWorkbench } from "@/components/workflow-test-workbench";
 import { fetchRunningHubApp, fetchRunningHubWorkflow } from "@/services/api/runninghub";
@@ -15,6 +16,7 @@ import { RUNNINGHUB_PLUGIN_ID } from "@/lib/plugins/builtin/workflows";
 import { usePluginStore } from "@/stores/use-plugin-store";
 import { flushModelConfig, getModelConfigPersistenceState, subscribeModelConfigPersistence } from "@/services/model-config-repository";
 import { observeRunningHubMetadataRequest } from "./runninghub-metadata-request";
+import { defaultWorkflowTextOutputNodeId, workflowTextOutputOptions } from "@/lib/workflow-text-outputs";
 import {
     normalizeRunningHubCapability,
     normalizeRunningHubWorkflowKind,
@@ -29,6 +31,7 @@ import {
 } from "@/stores/use-config-store";
 
 const capabilityOptions = [
+    { label: "文字", value: "text" },
     { label: "图片", value: "image" },
     { label: "视频", value: "video" },
     { label: "音频", value: "audio" },
@@ -47,7 +50,7 @@ function workflowEntryKey(workflow: RunningHubWorkflow): string {
 }
 
 function capabilityLabel(capability: RunningHubCapability) {
-    return capability === "video" ? "视频" : capability === "audio" ? "音频" : "图片";
+    return capability === "text" ? "文字" : capability === "video" ? "视频" : capability === "audio" ? "音频" : "图片";
 }
 
 export function RunningHubSettingsPane() {
@@ -190,6 +193,8 @@ export function RunningHubSettingsPane() {
                 title: result.title || title.trim() || id,
                 fields: existing ? mergeWorkflowFieldMappings(existing.fields, result.fields, capability) : normalizeWorkflowFieldMappings(result.fields, capability),
                 videoControls: existing?.videoControls,
+                optionalImageMode: existing?.optionalImageMode,
+                primaryTextOutputNodeId: existing?.primaryTextOutputNodeId ?? (capability === "text" ? defaultWorkflowTextOutputNodeId(result.workflowJson) : undefined),
                 workflowJson: kind === "workflow" ? result.workflowJson || {} : undefined,
             };
             persistWorkflow(item, capability);
@@ -382,7 +387,20 @@ export function RunningHubSettingsPane() {
                         onChange={(value) => setWorkspaceMode(value as "fields" | "test")}
                     />
                 </div>
+                {workspaceMode === "fields" ? <div className="lg:col-span-12"><WorkflowPromptMappingEditor fields={selected?.fields || []} disabled={!selected || !draftMatchesSelected} onChange={updateWorkflowFields} /></div> : null}
+                {workspaceMode === "fields" && kind === "workflow" ? <Form.Item label="未提供的参考图片" className="mb-0 lg:col-span-12">
+                    <Select aria-label="未提供的参考图片策略" className="w-full" value={selected?.optionalImageMode || "disconnect"} disabled={!selected || !draftMatchesSelected} options={[
+                        { label: "断开动态参考槽位（推荐）", value: "disconnect" },
+                        { label: "保留工作流默认图片", value: "retain" },
+                    ]} onChange={(value) => selected && persistWorkflow({ ...selected, optionalImageMode: value as "disconnect" | "retain" })} />
+                    <p className="mt-2 text-xs text-muted-foreground">仅断开直接连接 LoadImage 的动态 reference_images 端口，适用于 H3 提示词增强器等工作流。已开启、非必填的图片槽位未提供素材时不参与参考；固定输入和关闭映射的节点保留原值。修改只用于本次任务，不改动云端模板。</p>
+                </Form.Item> : null}
                 {workspaceMode === "fields" && capability === "video" ? <div className="lg:col-span-12"><WorkflowVideoControlsEditor fields={selected?.fields || []} value={selected?.videoControls} disabled={!selected || !draftMatchesSelected} onChange={(videoControls) => selected && persistWorkflow({ ...selected, videoControls })} /></div> : null}
+                {workspaceMode === "fields" && capability === "text" ? <Form.Item label="主文字输出节点" className="mb-0 lg:col-span-12">
+                    <AutoComplete className="w-full" disabled={!selected || !draftMatchesSelected} options={workflowTextOutputOptions(selected?.workflowJson)} value={selected?.primaryTextOutputNodeId || ""} placeholder="自动使用唯一文字输出；多输出时请选择节点" allowClear onChange={(value) => selected && persistWorkflow({ ...selected, primaryTextOutputNodeId: value.trim() })} />
+                    <p className="mt-2 text-xs text-muted-foreground">只将所选节点的文字用于下游，其他输出保留在结果列表。App 可填写输出节点 ID。</p>
+                    {kind === "workflow" && selected?.primaryTextOutputNodeId && selected.workflowJson && !selected.workflowJson[selected.primaryTextOutputNodeId] ? <p className="mt-1 text-xs text-destructive">已配置的输出节点不在当前工作流中，请重新选择。</p> : null}
+                </Form.Item> : null}
                 {workspaceMode === "fields" && kind === "workflow" ? (
                     <>
                         <div className="lg:col-span-12">

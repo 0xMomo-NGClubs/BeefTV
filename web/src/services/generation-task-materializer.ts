@@ -1,4 +1,5 @@
 import type { GenerationTask, GenerationTaskOutput } from "@/services/api/task-center";
+import { generationTaskOutputReady } from "@/lib/generation-outputs";
 
 export type GenerationTaskEffectResult = {
     materializedAssetId?: string;
@@ -177,7 +178,8 @@ export function createGenerationTaskMaterializer(dependencies: { effects: Genera
             const outputs: GenerationTaskOutput[] = [];
             for (const originalOutput of task.outputs) {
                 const output = { ...originalOutput };
-                if (!output.materializedAssetId && !(output.mediaType === "file" && output.resourceId)) {
+                if (output.mediaType === "text" && !generationTaskOutputReady(output)) throw new Error("任务文字输出尚未就绪");
+                if (output.mediaType !== "text" && !output.materializedAssetId && !(output.mediaType === "file" && output.resourceId)) {
                     const effectKey = materializeEffectKey(task.id, output.outputIndex);
                     const claim = await claimWhenAvailable(effectKey, task.id, signal);
                     if (claim.status === "completed") {
@@ -207,7 +209,7 @@ export function createGenerationTaskMaterializer(dependencies: { effects: Genera
             return {
                 ...task,
                 outputs,
-                resultState: outputs.every((output) => Boolean(output.materializedAssetId || output.mediaType === "file" && output.resourceId)) ? "READY" : "MATERIALIZING",
+                resultState: outputs.every(generationTaskOutputReady) ? "READY" : "MATERIALIZING",
             };
         },
 

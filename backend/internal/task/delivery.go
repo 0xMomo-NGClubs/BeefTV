@@ -38,6 +38,7 @@ const (
 type CanonicalOutput struct {
 	OutputIndex              int            `json:"outputIndex"`
 	MediaType                string         `json:"mediaType"`
+	Text                     string         `json:"text,omitempty"`
 	ProviderArtifactRef      string         `json:"providerArtifactRef,omitempty"`
 	MaterializedAssetID      string         `json:"materializedAssetId,omitempty"`
 	MaterializationErrorCode string         `json:"materializationErrorCode,omitempty"`
@@ -127,7 +128,7 @@ func CanonicalOutputs(resultJSON string, taskType string) []CanonicalOutput {
 				continue
 			}
 			kind := stringValue(value["mediaType"])
-			if kind != "image" && kind != "video" && kind != "audio" && kind != "file" {
+			if kind != "text" && kind != "image" && kind != "video" && kind != "audio" && kind != "file" {
 				continue
 			}
 			if output, ok := outputFromValue(value, kind, index); ok {
@@ -240,7 +241,7 @@ func ResultState(status model.TaskStatus, outputs []CanonicalOutput, failedRetry
 		retryable := false
 		permanent := false
 		for _, output := range outputs {
-			if output.MaterializedAssetID != "" || output.MediaType == "file" && output.ResourceID != "" && output.MaterializationErrorCode == "" {
+			if OutputReady(output) {
 				continue
 			}
 			ready = false
@@ -275,8 +276,15 @@ func ResultState(status model.TaskStatus, outputs []CanonicalOutput, failedRetry
 	}
 }
 
+func OutputReady(output CanonicalOutput) bool {
+	if output.MediaType == "text" {
+		return strings.TrimSpace(output.Text) != "" && output.MaterializationErrorCode == ""
+	}
+	return strings.TrimSpace(output.MaterializedAssetID) != "" || output.MediaType == "file" && strings.TrimSpace(output.ResourceID) != "" && output.MaterializationErrorCode == ""
+}
+
 func OutputSettled(output CanonicalOutput) bool {
-	return strings.TrimSpace(output.MaterializedAssetID) != "" || terminalMaterializeError(output.MaterializationErrorCode) || output.MediaType == "file" && strings.TrimSpace(output.ResourceID) != "" && output.MaterializationErrorCode == ""
+	return OutputReady(output) || terminalMaterializeError(output.MaterializationErrorCode)
 }
 
 func DeliveryComplete(resultJSON string, stored []CanonicalOutput, taskType string) bool {
@@ -290,7 +298,7 @@ func DeliveryComplete(resultJSON string, stored []CanonicalOutput, taskType stri
 	}
 	for _, output := range expected {
 		got, ok := byIndex[output.OutputIndex]
-		if !ok || !OutputSettled(got) {
+		if !ok || !OutputSettled(got) || output.MediaType == "text" && (got.MediaType != "text" || got.Text != output.Text) {
 			return false
 		}
 	}
@@ -423,6 +431,18 @@ func outputsFromList(value any, mediaType string) []CanonicalOutput {
 
 func outputFromValue(value any, mediaType string, index int) (CanonicalOutput, bool) {
 	output := CanonicalOutput{OutputIndex: index, MediaType: mediaType}
+	if mediaType == "text" {
+		item, ok := value.(map[string]any)
+		if !ok {
+			return CanonicalOutput{}, false
+		}
+		text, ok := item["text"].(string)
+		if !ok || strings.TrimSpace(text) == "" {
+			return CanonicalOutput{}, false
+		}
+		output.Text = text
+		return output, true
+	}
 	switch item := value.(type) {
 	case string:
 		text := strings.TrimSpace(item)
@@ -470,6 +490,31 @@ func outputFromValue(value any, mediaType string, index int) (CanonicalOutput, b
 	default:
 		return CanonicalOutput{}, false
 	}
+}
+
+// WorkflowPrimaryOutputIndex keeps task auto-bind and browser recovery on the
+// same slot. Ambiguous/missing text is bound as a collection at slot zero.
+func WorkflowPrimaryOutputIndex(resultJSON, mode string) int {
+	var result struct {
+		PrimaryOutputID string `json:"primaryOutputId"`
+		Warning         string `json:"outputParameterWarning"`
+		Outputs         []struct {
+			ID        string `json:"id"`
+			MediaType string `json:"mediaType"`
+		} `json:"outputs"`
+	}
+	if json.Unmarshal([]byte(resultJSON), &result) != nil || len(result.Outputs) == 0 {
+		return -1
+	}
+	if mode == "text" && result.Warning != "" {
+		return 0
+	}
+	for index, output := range result.Outputs {
+		if output.MediaType == mode && (result.PrimaryOutputID == "" || output.ID == result.PrimaryOutputID) {
+			return index
+		}
+	}
+	return 0
 }
 
 func stringValue(value any) string {

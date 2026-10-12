@@ -52,6 +52,32 @@ func TestTaskMediaPreviewSeparatesVideoPoster(t *testing.T) {
 	}
 }
 
+func TestTaskClientContextProjectsWorkflowTestIdentity(t *testing.T) {
+	for _, kind := range []string{"workflow", "app"} {
+		field := "workflowId"
+		if kind == "app" {
+			field = "webappId"
+		}
+		raw := `{"metadata":{"source":"workflow_settings_test"},"config":{"` + field + `":"test-flow","apiKey":"synthetic-secret"}}`
+		context := taskClientContext(raw)
+		if context == nil || context.Source != "workflow_settings_test" || context.WorkflowID != "test-flow" || context.WorkflowKind != kind {
+			t.Fatalf("context=%#v", context)
+		}
+		data, err := json.Marshal(context)
+		if err != nil || strings.Contains(string(data), "synthetic-secret") {
+			t.Fatal("task context leaked config")
+		}
+		public := publicTaskInputJSON(raw)
+		if strings.Contains(public, "synthetic-secret") || strings.Contains(public, `"config"`) {
+			t.Fatal("public input leaked config")
+		}
+		projected := taskClientContext(public)
+		if projected == nil || projected.WorkflowID != context.WorkflowID || projected.WorkflowKind != kind {
+			t.Fatalf("public workflow identity lost: %#v", projected)
+		}
+	}
+}
+
 func TestTaskClientContextRequiresCreatePageMetadata(t *testing.T) {
 	valid := taskClientContext(`{"metadata":{"source":"create-page","conversationId":"conversation-1","messageId":"message-1","batchIndex":2,"batchCount":4}}`)
 	if valid == nil || valid.ConversationID != "conversation-1" || valid.BatchIndex != 2 {

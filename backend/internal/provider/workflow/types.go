@@ -10,28 +10,30 @@ import (
 // Config is the workflow-needed slice of providerConfig. Shared providerConfig
 // remains owned by the provider worker; this is the mapping seam.
 type Config struct {
-	InterfaceType         string
-	BaseURL               string
-	APIKey                string
-	Headers               []outbound.OutboundHeader
-	Model                 string
-	Size                  string
-	Quality               string
-	TransparentBackground string
-	Count                 string
-	VideoSeconds          string
-	VQuality              string
-	VideoGenerateAudio    string
-	VideoWatermark        string
-	AudioVoice            string
-	AudioFormat           string
-	AudioSpeed            string
-	AudioInstructions     string
-	SystemPrompt          string
-	WorkflowID            string
-	WebappID              string
-	WorkflowJSON          map[string]interface{}
-	WorkflowFields        []Field
+	InterfaceType           string
+	BaseURL                 string
+	APIKey                  string
+	Headers                 []outbound.OutboundHeader
+	Model                   string
+	Size                    string
+	Quality                 string
+	TransparentBackground   string
+	Count                   string
+	VideoSeconds            string
+	VQuality                string
+	VideoGenerateAudio      string
+	VideoWatermark          string
+	AudioVoice              string
+	AudioFormat             string
+	AudioSpeed              string
+	AudioInstructions       string
+	SystemPrompt            string
+	WorkflowID              string
+	WebappID                string
+	WorkflowJSON            map[string]interface{}
+	WorkflowFields          []Field
+	OptionalImageMode       string
+	PrimaryTextOutputNodeID string
 }
 
 // Media is the workflow-needed slice of providerMedia.
@@ -71,7 +73,8 @@ type FetchRequest struct {
 // IsRunningHubInterface reports whether the channel interface is a RunningHub workflow.
 func IsRunningHubInterface(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case string(model.ChannelInterfaceRunningHubImage),
+	case string(model.ChannelInterfaceRunningHubText),
+		string(model.ChannelInterfaceRunningHubImage),
 		string(model.ChannelInterfaceRunningHubVideo),
 		string(model.ChannelInterfaceRunningHubAudio):
 		return true
@@ -95,6 +98,8 @@ func isWorkflowProviderInterface(value string) bool {
 
 func workflowInterfaceSupportsMode(interfaceType string, mode string) bool {
 	switch mode {
+	case "text":
+		return interfaceType == string(model.ChannelInterfaceRunningHubText)
 	case "image":
 		return interfaceType == string(model.ChannelInterfaceRunningHubImage)
 	case "video":
@@ -108,7 +113,7 @@ func workflowInterfaceSupportsMode(interfaceType string, mode string) bool {
 
 // ValidateConfig checks mode, interface, API key, outbound URL, and workflow identity.
 func ValidateConfig(mode string, config Config) error {
-	if mode != "image" && mode != "video" && mode != "audio" {
+	if mode != "text" && mode != "image" && mode != "video" && mode != "audio" {
 		return errf("工作流协议暂不支持%s生成", mode)
 	}
 	interfaceType := strings.ToLower(strings.TrimSpace(config.InterfaceType))

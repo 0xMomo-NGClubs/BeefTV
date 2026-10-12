@@ -928,6 +928,7 @@ function InfiniteCanvasPage() {
         finishGenerationRequest,
         openNodeTaskDetails,
         retrieveTaskResult,
+        refreshNodeTaskResult,
         retrievingTaskId,
         runningNodeId,
         setRunningNodeId,
@@ -1807,10 +1808,11 @@ function InfiniteCanvasPage() {
             updateMediaNode: updateMediaNodeFromContent,
             addGenerationOutputs: (node, outputs, signal) => applyGenerationOutputs(node, outputs, false, signal),
             selectGenerationOutput: (node, output, signal) => applyGenerationOutputs(node, [output], true, signal),
+            refreshTaskResult: refreshNodeTaskResult,
             openArtCritique,
             addPanoramaCaptureNode,
         }),
-        [addPanoramaCaptureNode, applyGenerationOutputs, deleteNodeFromContent, downloadNodeImage, duplicateNodeFromContent, openArtCritique, replaceCanvasNodeMedia, updateMediaNodeFromContent, updateNodeFromContent, updateNodeMetadataFromContent],
+        [addPanoramaCaptureNode, applyGenerationOutputs, deleteNodeFromContent, downloadNodeImage, duplicateNodeFromContent, openArtCritique, refreshNodeTaskResult, replaceCanvasNodeMedia, updateMediaNodeFromContent, updateNodeFromContent, updateNodeMetadataFromContent],
     );
     const { selectCanvasStyle, applyCanvasStyleAsync, styleApplying } = useCanvasStyleWorkflow({
         canvasId: projectId,

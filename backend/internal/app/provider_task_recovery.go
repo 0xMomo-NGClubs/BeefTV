@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/provider/workflow"
 	"infinite-canvas/backend/internal/repository"
 )
 
@@ -20,12 +21,19 @@ type ProviderTaskQueryResult struct {
 	Recovered      bool        `json:"recovered"`
 }
 
-func (s *Service) QueryFailedVideoTask(ctx context.Context, userID string, taskID string) (*ProviderTaskQueryResult, error) {
+func (s *Service) QueryProviderTask(ctx context.Context, userID string, taskID string) (*ProviderTaskQueryResult, error) {
 	task, err := s.repo.TaskForUser(strings.TrimSpace(userID), strings.TrimSpace(taskID))
 	if err != nil {
 		return nil, err
 	}
-	return s.queryFailedVideoTask(ctx, task, strings.TrimSpace(userID))
+	if task.Status == model.TaskStatusRunning || task.Status == model.TaskStatusQueued || task.Status == model.TaskStatusSucceeded {
+		projected, err := s.Task(userID, task.ID)
+		if err != nil {
+			return nil, err
+		}
+		return &ProviderTaskQueryResult{Task: projected, ProviderStatus: string(task.Status)}, nil
+	}
+	return s.queryFailedProviderTask(ctx, task, strings.TrimSpace(userID))
 }
 
 func (s *Service) AdminQueryFailedVideoTask(ctx context.Context, actor *model.User, logID string) (*ProviderTaskQueryResult, error) {
@@ -49,7 +57,7 @@ func (s *Service) AdminQueryFailedVideoTask(ctx context.Context, actor *model.Us
 	if task.ProviderRequestID == "" {
 		task.ProviderRequestID = strings.TrimSpace(log.ProviderRequestID)
 	}
-	result, err := s.queryFailedVideoTask(ctx, task, "")
+	result, err := s.queryFailedProviderTask(ctx, task, "")
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +69,7 @@ func (s *Service) AdminQueryFailedVideoTask(ctx context.Context, actor *model.Us
 	return result, nil
 }
 
-func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, claimUserID string) (*ProviderTaskQueryResult, error) {
+func (s *Service) queryFailedProviderTask(ctx context.Context, task *model.Task, claimUserID string) (*ProviderTaskQueryResult, error) {
 	ctx = withProtocolRegistry(ctx, s.protocolRegistry())
 	if task == nil || task.ID == "" {
 		return nil, BadAuthRequest("任务不存在")
@@ -69,10 +77,9 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	if task.Status != model.TaskStatusFailed {
 		return nil, BadAuthRequest("只能人工查询状态为失败的任务")
 	}
-	if !strings.HasPrefix(task.Type, "canvas_video") && !strings.HasPrefix(task.Type, "video_") {
-		return nil, BadAuthRequest("该任务不是视频生成任务")
+	if task.ProviderCancelStatus == model.ProviderCancelStatusRequested {
+		return nil, BadAuthRequest("上游任务正在取消，请等待取消结果")
 	}
-
 	s.hydrateTaskProviderRequestID(task)
 	providerRequestID := strings.TrimSpace(task.ProviderRequestID)
 	if providerRequestID == "" {
@@ -90,10 +97,14 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	if err != nil {
 		return nil, err
 	}
+	workflowTask := workflow.IsRunningHubInterface(config.InterfaceType)
+	if !workflowTask && !strings.HasPrefix(task.Type, "canvas_video") && !strings.HasPrefix(task.Type, "video_") {
+		return nil, BadAuthRequest("该任务不支持查询原上游结果")
+	}
 	ctx = ensureOfficialProtocolAdapter(ctx, config.InterfaceType)
 	adapter, declarative := declarativeProtocolAdapterForContext(ctx, config.InterfaceType)
 	beefVideo := isBeefAPIVideoConfig(ctx, config) && isSeedanceVideoConfig(config)
-	if !declarative && !beefVideo {
+	if !workflowTask && !declarative && !beefVideo {
 		return nil, BadAuthRequest("该任务的请求协议不支持安全查询上游状态")
 	}
 	input.Config = config
@@ -125,13 +136,17 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	queryCtx := withProviderAnalytics(recoveryCtx, s, *task)
 	var result map[string]interface{}
 	var providerStatus string
-	if beefVideo {
+	if workflowTask {
+		var queried workflow.PollOutcome
+		queried, err = s.workflowClient(nil).QueryTask(queryCtx, workflowConfigFromProvider(config), providerRequestID, input.Mode)
+		result, providerStatus = queried.Result, queried.Status
+	} else if beefVideo {
 		result, providerStatus, err = queryBeefAPIVideoResult(queryCtx, input, providerRequestID)
 	} else {
 		result, providerStatus, err = queryProtocolAdapterVideoTask(queryCtx, input, adapter, providerRequestID)
 	}
 	if err != nil {
-		_ = s.log(task.UserID, task.ID, "error", "人工查询上游视频任务失败", err.Error())
+		_ = s.log(task.UserID, task.ID, "error", "人工查询上游任务失败", err.Error())
 		return nil, err
 	}
 	if result == nil {
@@ -141,7 +156,7 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 
 	result, err = s.persistTaskGeneratedMediaResult(*task, result)
 	if err != nil {
-		_ = s.log(task.UserID, task.ID, "error", "人工查询已取得视频，但结果保存失败", err.Error())
+		_ = s.log(task.UserID, task.ID, "error", "人工查询已取得结果，但保存失败", err.Error())
 		return nil, err
 	}
 	resultJSON, err := json.Marshal(result)
@@ -152,7 +167,7 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	task.PollStage = strings.ToLower(providerStatus)
 	task.NextPollAt = nil
 	if err := s.saveTaskCompletionWithinStorageQuota(task, resultJSON, nil, false); err != nil {
-		_ = s.log(task.UserID, task.ID, "error", "人工查询已取得视频，但任务恢复失败", err.Error())
+		_ = s.log(task.UserID, task.ID, "error", "人工查询已取得结果，但任务恢复失败", err.Error())
 		return nil, err
 	}
 	if err := s.RegisterTaskOutputFromTask(*task); err != nil {

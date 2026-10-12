@@ -17,7 +17,7 @@ import { formatTaskKind, operationOptions, statusLabel } from "@/lib/generation-
 import { buildVideoOperationPrompt } from "@/lib/prompts";
 import { backendProviderConfig, logicalModelIDForConfig } from "@/services/api/generation-task";
 
-import { createGenerationTask, formatTaskLog, listGenerationTasks, listTaskLogs, queryFailedVideoProviderTask, queryGenerationTask, retryGenerationTask, type CreateTaskInput, type GenerationTask, type TaskLog } from "@/services/api/task-center";
+import { canRetrieveGenerationResult, createGenerationTask, formatTaskLog, listGenerationTasks, listTaskLogs, queryProviderTaskResult, queryGenerationTask, retryGenerationTask, type CreateTaskInput, type GenerationTask, type TaskLog } from "@/services/api/task-center";
 import { syncGenerationTaskToCanvasStore } from "@/lib/canvas/canvas-generation-task-sync";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { resolveModelRequestConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -368,8 +368,8 @@ export default function TasksPage() {
         const request = detailRequestRef.current;
         setActingId(task.id);
         try {
-            const result = await queryFailedVideoProviderTask(task.id);
-            if (!result.recovered) {
+            const result = await queryProviderTaskResult(task.id);
+            if (result.task.status !== "succeeded") {
                 const logs = await listTaskLogs(task.id);
                 if (request === detailRequestRef.current) {
                     setTaskLogs(logs);
@@ -384,7 +384,7 @@ export default function TasksPage() {
             if (logs && request === detailRequestRef.current) setTaskLogs(logs);
             if (!localMode) window.dispatchEvent(new CustomEvent("wallet:updated"));
             void loadTasks(false);
-            if (request === detailRequestRef.current) message.success("视频已取回，未重新生成");
+            if (request === detailRequestRef.current) message.success("结果已取回，未重新生成");
         } catch (error) {
             if (request === detailRequestRef.current) message.error(error instanceof Error ? error.message : "查询上游任务失败");
         } finally {
@@ -604,7 +604,7 @@ export default function TasksPage() {
 }
 
 function canQueryProviderTask(task: GenerationTask) {
-    return task.status === "failed" && (task.type.startsWith("canvas_video") || task.type.startsWith("video_")) && Boolean(task.providerRequestId);
+    return canRetrieveGenerationResult(task);
 }
 
 function TaskResultMedia({ value, taskType }: { value?: string; taskType: string }) {

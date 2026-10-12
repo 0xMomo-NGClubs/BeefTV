@@ -1,14 +1,25 @@
 import { App, Button, Input, InputNumber, Progress, Select } from "antd";
 import { Switch } from "@/components/ui/base/switch";
 import { EmptyState } from "@/components/ui/product/empty-state";
-import { FileAudio, FileImage, Film, Grip, Play, RotateCcw, Square, Upload, WandSparkles } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { FileAudio, FileImage, FileText, Film, Grip, Play, RefreshCw, RotateCcw, Square, Upload, WandSparkles } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { generationErrorMessage } from "@/lib/generation-error";
+import { primaryGenerationOutput, primaryTextGenerationOutput } from "@/lib/generation-outputs";
+import { GenerationTextOutput } from "@/components/generation/generation-text-output";
+import { GenerationAudioOutput } from "@/components/generation/generation-audio-output";
+import { CachedResourceImage } from "@/components/cached-resource-image";
+import { downloadGenerationOutput } from "@/services/generation-output-media";
 import { useResourceVideoPlayback } from "@/hooks/use-resource-video-playback";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
-import { runBackendGenerationTask, type BackendGenerationResult } from "@/services/api/generation-task";
+import { parseBackendGenerationResult, runBackendGenerationTask, type BackendGenerationResult } from "@/services/api/generation-task";
+import { queryProviderTaskResult, type GenerationTask } from "@/services/api/task-center";
+import { latestWorkflowTestTask, rememberWorkflowTestTask } from "@/services/workflow-test-task";
+import { getActiveUserScopeEpoch, subscribeUserScope } from "@/lib/user-scope";
+import { captureUserScope } from "@/lib/user-scope-guard";
 import { useConfigStore, type AiConfig, type RunningHubCapability, type WorkflowFieldMapping } from "@/stores/use-config-store";
+import { workflowPromptTargetLabel, workflowPromptTargets } from "@/lib/workflow-prompt-mapping";
+import { disconnectedWorkflowImageFields } from "@/lib/workflow-image-inputs";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -49,7 +60,14 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
     const [progress, setProgress] = useState(0);
     const [stage, setStage] = useState("等待运行");
     const [result, setResult] = useState<BackendGenerationResult | null>(null);
+    const [previewOutputId, setPreviewOutputId] = useState("");
     const [error, setError] = useState("");
+    const [task, setTask] = useState<GenerationTask | null>(null);
+    const [refreshing, setRefreshing] = useState(false);
+    const scopeEpoch = useSyncExternalStore(subscribeUserScope, getActiveUserScopeEpoch, getActiveUserScopeEpoch);
+    const taskRef = useRef<GenerationTask | null>(null);
+    const refreshRef = useRef<AbortController | null>(null);
+    const lookupRef = useRef<AbortController | null>(null);
     const canvasRef = useRef<HTMLDivElement>(null);
     const autoOutputXRef = useRef(initialPositions.output.x);
     const [canvasWidth, setCanvasWidth] = useState(1040);
@@ -61,8 +79,50 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
     const imageReferenceCount = useMemo(() => referenceImageSlotCount(activeFields), [activeFields]);
     const maskEnabled = useMemo(() => activeFields.some((field) => field.source === "mask"), [activeFields]);
     const parameterFields = useMemo(() => uniqueParameterFields(activeFields), [activeFields]);
+    const promptTarget = workflowPromptTargetLabel(fields);
+    const selectedWorkflow = config.runningHub.workflows.find((item) => item.workflowId === workflowId && (item.kind === "app" ? "app" : "workflow") === workflowKind);
+    const disconnectedImages = disconnectedWorkflowImageFields(selectedWorkflow, fields);
     const visibleMediaKinds = (Object.keys(slots) as MediaKind[]).filter((kind) => slots[kind] > 0);
-    const resultUrls = generationResultUrls(result, capability);
+    const resultOutputs = result?.outputs || [];
+    const initialOutput = capability === "text" ? primaryTextGenerationOutput(resultOutputs, result?.primaryOutputId, result?.outputParameterWarning) : primaryGenerationOutput(resultOutputs, capability);
+    const previewOutput = resultOutputs.find((output) => output.id === previewOutputId) || initialOutput || resultOutputs[0];
+    const previewCapability = previewOutput?.mediaType || capability;
+    const resultUrls = previewOutput ? [previewOutput.dataUrl || previewOutput.url || ""].filter(Boolean) : generationResultUrls(result, capability);
+
+    const showTask = (next: GenerationTask, providerStatus = next.status as string) => {
+        taskRef.current = next;
+        setTask(next);
+        setProgress(Number(next.progress) || 0);
+        if (next.status === "succeeded") {
+            setResult(parseBackendGenerationResult(next));
+            setError("");
+            setStage("已完成");
+        } else if (providerStatus === "running" || providerStatus === "queued") {
+            setError("");
+            setStage(providerStatus === "queued" ? "上游任务排队中，可稍后刷新结果" : "上游任务运行中，可稍后刷新结果");
+        } else {
+            setStage(taskStageLabel(next.status, next.stage));
+            setError(next.status === "failed" ? generationErrorMessage(next.error || "任务失败") : "");
+        }
+    };
+
+    useEffect(() => {
+        const controller = new AbortController();
+        lookupRef.current = controller;
+        taskRef.current = null;
+        setTask(null);
+        setRefreshing(false);
+        setRunning(false);
+        setPrompt("");
+        Object.values(filesRef.current).flat().forEach((file) => URL.revokeObjectURL(file.url));
+        setFiles({ image: [], video: [], audio: [] });
+        void latestWorkflowTestTask({ workflowId, kind: workflowKind, capability }, controller.signal).then((latest) => {
+            if (latest && !controller.signal.aborted && !taskRef.current) showTask(latest);
+        }).catch((reason) => {
+            if (!controller.signal.aborted) message.warning(reason instanceof Error ? `读取最近测试任务失败：${reason.message}` : "读取最近测试任务失败");
+        });
+        return () => { controller.abort(); abortRef.current?.abort(); abortRef.current = null; refreshRef.current?.abort(); refreshRef.current = null; };
+    }, [workflowId, workflowKind, capability, scopeEpoch]);
 
     useEffect(() => {
         setFieldValues(initialFieldValues(fields, config));
@@ -100,6 +160,7 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
     useEffect(
         () => () => {
             abortRef.current?.abort();
+            refreshRef.current?.abort();
             Object.values(filesRef.current)
                 .flat()
                 .forEach((item) => URL.revokeObjectURL(item.url));
@@ -120,6 +181,7 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
     };
 
     const resetTest = () => {
+        lookupRef.current?.abort();
         Object.values(files)
             .flat()
             .forEach((item) => URL.revokeObjectURL(item.url));
@@ -133,14 +195,19 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
         setError("");
         setProgress(0);
         setStage("等待运行");
+        taskRef.current = null;
+        setTask(null);
     };
 
     const runTest = async () => {
         if (disabled) return message.warning(disabledReason || "请先完成工作流配置");
-        const missing = missingRequiredInput(activeFields, prompt, files, fieldValues);
+        const missing = missingRequiredInput(activeFields, files, fieldValues);
         if (missing) return message.warning(missing);
+        lookupRef.current?.abort();
         const controller = new AbortController();
         abortRef.current = controller;
+        taskRef.current = null;
+        setTask(null);
         setRunning(true);
         setResult(null);
         setError("");
@@ -157,17 +224,27 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
                 referenceAudios: files.audio.map(toReferenceAudio),
                 mask: maskEnabled && files.image[imageReferenceCount] ? toReferenceImage(files.image[imageReferenceCount]) : undefined,
                 signal: controller.signal,
-                metadata: { source: "workflow_settings_test", workflowProvider: provider, workflowId },
+                expectedScope: captureUserScope(),
+                metadata: { source: "workflow_settings_test", workflowProvider: provider, workflowId, workflowKind },
                 onTaskUpdate: (task) => {
+                    if (taskRef.current?.id !== task.id) {
+                        void rememberWorkflowTestTask({ workflowId, kind: workflowKind, capability }, task.id).catch(() => {
+                            if (!controller.signal.aborted) message.warning("任务已创建，但最近测试记录未缓存；可在生成历史中查询");
+                        });
+                    }
+                    taskRef.current = task;
+                    setTask(task);
                     setProgress(Math.max(0, Math.min(100, Number(task.progress) || 0)));
                     setStage(taskStageLabel(task.status, task.stage));
                 },
             });
             setResult(response);
+            setPreviewOutputId("");
             setProgress(100);
             setStage("测试完成");
             message.success("工作流测试完成");
         } catch (reason) {
+            if (abortRef.current !== controller) return;
             if (controller.signal.aborted) {
                 setStage("已停止等待");
                 return;
@@ -177,14 +254,32 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
             setStage("测试失败");
             message.error(detail);
         } finally {
-            if (abortRef.current === controller) abortRef.current = null;
-            setRunning(false);
+            if (abortRef.current === controller) {
+                abortRef.current = null;
+                setRunning(false);
+            }
         }
     };
 
     const stopTest = () => {
         abortRef.current?.abort();
         setStage("正在停止等待");
+    };
+
+    const refreshResult = async () => {
+        if (!taskRef.current || refreshRef.current) return;
+        const request = new AbortController();
+        refreshRef.current = request;
+        setRefreshing(true);
+        try {
+            const queried = await queryProviderTaskResult(taskRef.current.id, { signal: request.signal });
+            if (!request.signal.aborted) showTask(queried.task, queried.providerStatus);
+        } catch (reason) {
+            if (!request.signal.aborted) message.error(generationErrorMessage(reason));
+        } finally {
+            if (refreshRef.current === request) refreshRef.current = null;
+            if (!request.signal.aborted) setRefreshing(false);
+        }
     };
 
     return (
@@ -197,7 +292,8 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
                     </span>
                 </div>
                 <div className="workflow-test-toolbar-actions">
-                    <Button icon={<RotateCcw className="size-4" />} disabled={running} onClick={resetTest}>
+                    <Button icon={<RefreshCw className="size-4" />} loading={refreshing} disabled={!task} title="查询原任务结果，不重新生成" onClick={() => void refreshResult()}>刷新结果</Button>
+                    <Button icon={<RotateCcw className="size-4" />} disabled={running || refreshing} onClick={resetTest}>
                         重置测试
                     </Button>
                     {running ? (
@@ -205,7 +301,7 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
                             停止等待
                         </Button>
                     ) : (
-                        <Button type="primary" icon={<Play className="size-4" />} disabled={disabled} onClick={() => void runTest()}>
+                        <Button type="primary" icon={<Play className="size-4" />} disabled={disabled || refreshing || task?.status === "running" || task?.status === "queued"} onClick={() => void runTest()}>
                             运行测试
                         </Button>
                     )}
@@ -215,7 +311,7 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
             <div className="workflow-test-canvas-scroll">
                 <div ref={canvasRef} className="workflow-test-canvas" data-canvas-no-zoom>
                     <svg className="workflow-test-lines" aria-hidden="true" viewBox={`0 0 ${canvasWidth} 760`} preserveAspectRatio="none">
-                        <WorkflowLine from={positions.prompt} to={positions.workflow} fromWidth={284} toOffsetY={74} />
+                        {promptTarget ? <WorkflowLine from={positions.prompt} to={positions.workflow} fromWidth={284} toOffsetY={74} /> : null}
                         {visibleMediaKinds.map((kind, index) => (
                             <WorkflowLine key={kind} from={positions[kind]} to={positions.workflow} fromWidth={284} fromOffsetY={64} toOffsetY={112 + index * 26} />
                         ))}
@@ -223,6 +319,7 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
                     </svg>
 
                     <WorkflowNode id="prompt" title="提示词" icon={<WandSparkles />} position={positions.prompt} onMove={(point) => setPositions((current) => ({ ...current, prompt: point }))}>
+                        <p className="mb-2 break-words text-xs text-muted-foreground">{promptTarget ? `提交到：${promptTarget}` : "未映射提示词，使用右侧工作流字段值"}</p>
                         <Input.TextArea value={prompt} autoSize={{ minRows: 4, maxRows: 7 }} placeholder="输入本次测试提示词" onChange={(event) => setPrompt(event.target.value)} />
                     </WorkflowNode>
 
@@ -236,6 +333,7 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
                             onMove={(point) => setPositions((current) => ({ ...current, [kind]: point }))}
                         >
                             <MediaPicker kind={kind} limit={slots[kind]} files={files[kind]} maskIndex={kind === "image" && maskEnabled ? imageReferenceCount : undefined} onChange={(selected) => replaceFiles(kind, selected)} />
+                            {kind === "image" && files.image.length < imageReferenceCount ? <p className="mt-2 text-xs text-muted-foreground">已选 {Math.min(files.image.length, imageReferenceCount)} / {imageReferenceCount} 张。{disconnectedImages.size ? "未提供的动态参考槽位将断开；固定输入保留工作流默认图片。" : "未提供的槽位保留工作流原图片；节点仍有连线时，默认图片也会参与参考。"}</p> : null}
                         </WorkflowNode>
                     ))}
 
@@ -255,11 +353,14 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
                     <WorkflowNode
                         id="output"
                         title={`${capabilityName(capability)}输出`}
-                        icon={capability === "image" ? <FileImage /> : capability === "video" ? <Film /> : <FileAudio />}
+                        icon={capability === "text" ? <FileText /> : capability === "image" ? <FileImage /> : capability === "video" ? <Film /> : <FileAudio />}
                         position={positions.output}
                         onMove={(point) => setPositions((current) => ({ ...current, output: point }))}
                     >
-                        <div className="workflow-test-output">{resultUrls.length ? <ResultPreview capability={capability} urls={resultUrls} video={result?.video} /> : <EmptyState size="compact" title={error || stage} />}</div>
+                        {resultOutputs.length > 1 ? <Select className="mb-2 w-full" value={previewOutput?.id} options={resultOutputs.map((output) => ({ value: output.id, label: `${output.mediaType === "file" ? "文件" : capabilityName(output.mediaType)} · 输出 ${output.outputIndex + 1}${output.sourceNodeId ? ` · 节点 ${output.sourceNodeId}` : ""}` }))} onChange={setPreviewOutputId} /> : null}
+                        {result?.outputParameterWarning ? <p className="mb-2 text-xs text-muted-foreground">{result.outputParameterWarning}</p> : null}
+                        <div className="workflow-test-output">{previewOutput?.mediaType === "text" ? <GenerationTextOutput text={previewOutput.text || ""} /> : previewOutput?.mediaType === "audio" ? <GenerationAudioOutput output={previewOutput} /> : resultUrls.length && previewCapability !== "text" && previewCapability !== "file" ? <ResultPreview capability={previewCapability} urls={resultUrls} video={previewOutput?.mediaType === "video" ? previewOutput : result?.video} /> : <EmptyState size="compact" title={error || (previewCapability === "file" ? "请下载查看文件" : stage)} />}</div>
+                        {previewOutput ? <Button className="mt-2" size="small" onClick={() => void downloadGenerationOutput(previewOutput).catch((reason) => message.error(reason instanceof Error ? reason.message : "下载失败"))}>下载{previewOutput.mediaType === "text" ? " TXT" : "输出"}</Button> : null}
                         <Progress percent={progress} size="small" status={error ? "exception" : running ? "active" : undefined} showInfo={running || progress > 0} />
                     </WorkflowNode>
                 </div>
@@ -386,11 +487,11 @@ function WorkflowParameter({ field, value, onChange }: { field: WorkflowFieldMap
 
 function ResultPreview({ capability, urls, video }: { capability: RunningHubCapability; urls: string[]; video?: BackendGenerationResult["video"] }) {
     if (capability === "video") return <VideoResultPreview storageKey={video?.storageKey || ""} fallback={video?.dataUrl || video?.url || urls[0]} />;
-    if (capability === "audio") return <audio src={urls[0]} controls />;
+    if (capability === "audio") return <GenerationAudioOutput output={{ id: "preview", outputIndex: 0, mediaType: "audio", dataUrl: urls[0] }} />;
     return (
         <div className="workflow-test-image-results">
             {urls.map((url) => (
-                <img key={url} src={url} alt="工作流测试输出" />
+                <CachedResourceImage key={url} src={url} alt="工作流测试输出" />
             ))}
         </div>
     );
@@ -457,8 +558,9 @@ function applySourceValues(config: AiConfig, fields: WorkflowFieldMapping[], val
 
 function initialFieldValues(fields: WorkflowFieldMapping[], config: AiConfig) {
     const values: Record<string, unknown> = {};
+    const promptKeys = new Set(workflowPromptTargets(fields).map(testFieldKey));
     fields.forEach((field) => {
-        if (isPromptOrMediaSource(String(field.source || ""))) return;
+        if (promptKeys.has(testFieldKey(field)) || isPromptOrMediaSource(String(field.source || ""))) return;
         const source = String(field.source || "");
         const workflowValue = field.fieldValue ?? field.value ?? field.defaultValue ?? field.default;
         const configValue = source === "aspectRatio" ? config.size : source === "width" ? dimensionFromSize(config.size, 0) : source === "height" ? dimensionFromSize(config.size, 1) : (config as unknown as Record<string, unknown>)[source];
@@ -469,9 +571,10 @@ function initialFieldValues(fields: WorkflowFieldMapping[], config: AiConfig) {
 
 function uniqueParameterFields(fields: WorkflowFieldMapping[]) {
     const keys = new Set<string>();
+    const promptKeys = new Set(workflowPromptTargets(fields).map(testFieldKey));
     return fields.filter((field) => {
         const source = String(field.source || "");
-        if (isPromptOrMediaSource(source)) return false;
+        if (promptKeys.has(testFieldKey(field)) || isPromptOrMediaSource(source)) return false;
         const key = testFieldKey(field);
         if (keys.has(key)) return false;
         keys.add(key);
@@ -502,13 +605,12 @@ function mediaSlotCounts(fields: WorkflowFieldMapping[]) {
     return result;
 }
 
-function missingRequiredInput(fields: WorkflowFieldMapping[], prompt: string, files: Record<MediaKind, TestFile[]>, values: Record<string, unknown>) {
-    if (!prompt.trim()) return "请填写测试提示词";
+function missingRequiredInput(fields: WorkflowFieldMapping[], files: Record<MediaKind, TestFile[]>, values: Record<string, unknown>) {
     const imageReferences = referenceImageSlotCount(fields);
     for (const field of fields) {
         if (!field.required) continue;
         const source = String(field.source || "");
-        if (source === "prompt" && !prompt.trim()) return "请填写测试提示词";
+        if (workflowPromptTargets([field]).length) continue;
         const kind = source === "referenceImage" || source === "mask" ? "image" : source === "referenceVideo" ? "video" : source === "referenceAudio" ? "audio" : null;
         const index = source === "mask" ? imageReferences : source === "referenceImage" ? Math.max(0, (Number(field.imageOrder) || 1) - 1) : Math.max(0, Number(field.sourceIndex) || 0);
         if (kind && !files[kind][index]) return `请上传第 ${index + 1} 个${mediaName(kind)}素材`;
@@ -526,6 +628,7 @@ function isPromptOrMediaSource(source: string) {
 }
 
 function generationResultUrls(result: BackendGenerationResult | null, capability: RunningHubCapability) {
+    if (capability === "text") return [];
     const media = capability === "image" ? result?.images || [] : capability === "video" ? (result?.video ? [result.video] : []) : result?.audio ? [result.audio] : [];
     return media
         .map((item) => {
@@ -575,7 +678,7 @@ function displayValue(value: unknown) {
     return value === undefined || value === null ? "" : typeof value === "string" ? value : JSON.stringify(value);
 }
 function capabilityName(value: RunningHubCapability) {
-    return value === "video" ? "视频" : value === "audio" ? "音频" : "图片";
+    return value === "text" ? "文字" : value === "video" ? "视频" : value === "audio" ? "音频" : "图片";
 }
 function mediaName(value: MediaKind) {
     return value === "video" ? "视频" : value === "audio" ? "音频" : "图片";

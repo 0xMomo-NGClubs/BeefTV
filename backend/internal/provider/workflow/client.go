@@ -12,6 +12,7 @@ import (
 	"net/textproto"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"infinite-canvas/backend/internal/outbound"
 )
@@ -101,6 +102,8 @@ func (c *Client) runRunningHub(ctx context.Context, input Input) (map[string]int
 	if webappID == "" && len(mappingWorkflow) == 0 && workflowID != "" {
 		if fetched, fetchErr := c.FetchWorkflowJSON(ctx, root, input.Config, workflowID); fetchErr == nil {
 			mappingWorkflow = fetched
+		} else if input.Config.OptionalImageMode != "retain" {
+			return nil, fmt.Errorf("无法读取工作流，未提供图片的动态槽位无法处理：%w", fetchErr)
 		}
 	}
 	workflowFields := input.Config.WorkflowFields
@@ -114,6 +117,14 @@ func (c *Client) runRunningHub(ctx context.Context, input Input) (map[string]int
 	workflowFields = workflowFieldsForMode(workflowFields, input.Mode)
 	if err := validateWorkflowMediaInputs(workflowFields, input); err != nil {
 		return nil, err
+	}
+	var dynamicWorkflow bool
+	if webappID == "" {
+		var err error
+		mappingWorkflow, dynamicWorkflow, err = workflowWithProvidedImages(mappingWorkflow, workflowFields, len(input.ReferenceImages), input.Config.OptionalImageMode)
+		if err != nil {
+			return nil, err
+		}
 	}
 	files := map[string]string{}
 	for _, media := range append(append(append([]Media{}, input.ReferenceImages...), input.ReferenceVideos...), input.ReferenceAudios...) {
@@ -134,7 +145,9 @@ func (c *Client) runRunningHub(ctx context.Context, input Input) (map[string]int
 	if err != nil {
 		return nil, err
 	}
-	if !workflowFieldsBindPrompt(workflowFields) {
+	// Explicit field mappings also define an intentional absence of prompt binding.
+	// Only configurations without a field policy may infer a prompt target.
+	if len(input.Config.WorkflowFields) == 0 && !workflowFieldsBindPrompt(workflowFields) {
 		nodeInfo = upsertRunningHubNodeInfo(nodeInfo, runningHubPromptFallback(mappingWorkflow, input.Prompt))
 	}
 	body := map[string]any{"apiKey": apiKey}
@@ -144,6 +157,13 @@ func (c *Client) runRunningHub(ctx context.Context, input Input) (map[string]int
 		endpoint = root + "/task/openapi/ai-app/run"
 	} else {
 		body["workflowId"] = workflowID
+		if dynamicWorkflow {
+			encoded, err := json.Marshal(mappingWorkflow)
+			if err != nil {
+				return nil, fmt.Errorf("工作流 JSON 编码失败：%w", err)
+			}
+			body["workflow"] = string(encoded)
+		}
 	}
 	if len(nodeInfo) > 0 {
 		body["nodeInfoList"] = nodeInfo
@@ -291,114 +311,94 @@ func (c *Client) PostJSON(ctx context.Context, config Config, endpoint string, k
 	return target, nil
 }
 
-// Poll waits for the original accepted task. Video uses VideoPoller; other modes use the legacy interval.
+// Poll waits for the original accepted task with shared transient retries.
 func (c *Client) Poll(ctx context.Context, config Config, root string, taskID string, mode string) (map[string]interface{}, error) {
 	c = c.prepared()
-	if mode == "video" {
-		return c.PollVideo(ctx, config, root, taskID, defaultVideoPolicy())
+	policy := defaultVideoPolicy()
+	if mode != "video" {
+		policy.InitialDelay = 0
+		policy.Interval = 2500 * time.Millisecond
 	}
-	return c.pollLegacy(ctx, config, root, taskID)
+	result, err := c.PollVideo(ctx, config, root, taskID, policy)
+	if err != nil {
+		return nil, err
+	}
+	if mode == "text" {
+		selectWorkflowTextOutput(result, config.PrimaryTextOutputNodeID)
+	}
+	return result, nil
 }
 
-// PollVideo queries the original task through the provider video poll loop.
+// PollVideo composes the provider poll loop for every workflow output type.
 func (c *Client) PollVideo(ctx context.Context, config Config, root string, taskID string, policy PollPolicy) (map[string]interface{}, error) {
 	c = c.prepared()
 	if c.Poller == nil {
 		return nil, errors.New("工作流缺少视频轮询端口")
 	}
 	return c.Poller.Poll(ctx, taskID, policy, func(ctx context.Context) (PollOutcome, error) {
-		response, err := c.PostJSON(ctx, config, root+"/task/openapi/outputs", "poll", map[string]any{"apiKey": runningHubAPIKey(config), "taskId": taskID})
-		if err != nil {
-			return PollOutcome{}, fmt.Errorf("RunningHub 查询任务失败：%w", err)
-		}
-		code, validCode := runningHubPayloadCode(response)
-		if !validCode {
-			validCode = len(runningHubOutputURLs(response["data"])) > 0
-			code = 0
-		}
-		if !validCode {
-			return PollOutcome{}, errors.New("RunningHub 查询响应缺少可识别状态")
-		}
-		if code == 0 {
-			outputs := runningHubOutputs(response["data"])
-			if len(outputs) == 0 {
-				return PollOutcome{}, errors.New("RunningHub 任务成功但没有返回产物")
-			}
-			for index := range outputs {
-				outputs[index].URL = resolveRunningHubOutputURL(root, outputs[index].URL)
-			}
-			result, err := c.downloadWorkflowOutputs(ctx, outputs, taskID, &policy)
-			if err != nil {
-				return PollOutcome{}, err
-			}
-			c.updateReceipt(ctx, taskID, "succeeded", nil)
-			return PollOutcome{Done: true, Result: result}, nil
-		}
-		if code == 805 || code == 806 {
-			return PollOutcome{}, fmt.Errorf("RunningHub 任务失败：%s", runningHubFailureMessage(response))
-		}
-		stage := "running"
-		if code == 813 {
-			stage = "queued"
-		} else if code != 804 {
-			stage = "pending"
-		}
-		interval := policy.Interval
-		if interval <= 0 {
-			interval = defaultVideoPollInterval
-		}
-		next := c.Time.Now().Add(interval)
-		c.updateReceipt(ctx, taskID, stage, &next)
-		return PollOutcome{}, nil
+		return c.queryTaskOnce(ctx, config, root, taskID, &policy)
 	})
 }
 
-func (c *Client) pollLegacy(ctx context.Context, config Config, root string, taskID string) (map[string]interface{}, error) {
-	interval := c.Time.LegacyPollInterval()
-	for deadline := c.Time.PollDeadline(ctx); c.Time.Now().Before(deadline); {
-		response, err := c.PostJSON(ctx, config, root+"/task/openapi/outputs", "poll", map[string]any{"apiKey": runningHubAPIKey(config), "taskId": taskID})
-		if err != nil {
-			return nil, fmt.Errorf("RunningHub 查询任务失败：%w", err)
-		}
-		code, validCode := runningHubPayloadCode(response)
-		if !validCode {
-			validCode = len(runningHubOutputURLs(response["data"])) > 0
-			code = 0
-		}
-		if !validCode {
-			return nil, errors.New("RunningHub 查询响应缺少可识别状态")
-		}
-		if code == 0 {
-			outputs := runningHubOutputs(response["data"])
-			if len(outputs) == 0 {
-				return nil, errors.New("RunningHub 任务成功但没有返回产物")
-			}
-			for index := range outputs {
-				outputs[index].URL = resolveRunningHubOutputURL(root, outputs[index].URL)
-			}
-			result, err := c.downloadWorkflowOutputs(ctx, outputs, taskID, nil)
-			if err != nil {
-				return nil, err
-			}
-			c.updateReceipt(ctx, taskID, "succeeded", nil)
-			return result, nil
-		}
-		if code == 805 || code == 806 {
-			return nil, fmt.Errorf("RunningHub 任务失败：%s", runningHubFailureMessage(response))
-		}
-		stage := "running"
-		if code == 813 {
-			stage = "queued"
-		} else if code != 804 {
-			stage = "pending"
-		}
-		next := c.Time.Now().Add(interval)
-		c.updateReceipt(ctx, taskID, stage, &next)
-		if err := c.Time.Sleep(ctx, interval); err != nil {
-			return nil, err
-		}
+// QueryTask reads one accepted task, without uploads or task creation.
+func (c *Client) QueryTask(ctx context.Context, config Config, taskID string, mode string) (PollOutcome, error) {
+	c = c.prepared()
+	if strings.TrimSpace(taskID) == "" {
+		return PollOutcome{}, errors.New("缺少原上游任务 ID")
 	}
-	return nil, fmt.Errorf("RunningHub 任务超时（%s）", taskID)
+	if err := c.requireActor(ctx, config.InterfaceType); err != nil {
+		return PollOutcome{}, err
+	}
+	policy := defaultVideoPolicy()
+	out, err := c.queryTaskOnce(ctx, config, runningHubRootURL(config.BaseURL), taskID, &policy)
+	if err == nil && out.Done && mode == "text" {
+		selectWorkflowTextOutput(out.Result, config.PrimaryTextOutputNodeID)
+	}
+	return out, err
+}
+
+func (c *Client) queryTaskOnce(ctx context.Context, config Config, root string, taskID string, policy *PollPolicy) (PollOutcome, error) {
+	response, err := c.PostJSON(ctx, config, root+"/task/openapi/outputs", "poll", map[string]any{"apiKey": runningHubAPIKey(config), "taskId": taskID})
+	if err != nil {
+		return PollOutcome{}, fmt.Errorf("RunningHub 查询任务失败：%w", err)
+	}
+	code, validCode := runningHubPayloadCode(response)
+	if !validCode {
+		validCode = len(runningHubOutputs(response["data"])) > 0
+		code = 0
+	}
+	if !validCode {
+		return PollOutcome{}, errors.New("RunningHub 查询响应缺少可识别状态")
+	}
+	if code == 0 {
+		outputs := runningHubOutputs(response["data"])
+		if len(outputs) == 0 {
+			return PollOutcome{}, errors.New("RunningHub 任务成功但没有返回产物")
+		}
+		for index := range outputs {
+			outputs[index].URL = resolveRunningHubOutputURL(root, outputs[index].URL)
+		}
+		result, err := c.downloadWorkflowOutputs(ctx, outputs, taskID, policy)
+		if err != nil {
+			return PollOutcome{}, err
+		}
+		c.updateReceipt(ctx, taskID, "succeeded", nil)
+		return PollOutcome{Done: true, Result: result, Status: "succeeded"}, nil
+	}
+	if code != 804 && code != 813 {
+		return PollOutcome{}, fmt.Errorf("RunningHub 任务查询失败：%s", runningHubFailureMessage(response))
+	}
+	stage := "running"
+	if code == 813 {
+		stage = "queued"
+	}
+	interval := defaultVideoPollInterval
+	if policy != nil && policy.Interval > 0 {
+		interval = policy.Interval
+	}
+	next := c.Time.Now().Add(interval)
+	c.updateReceipt(ctx, taskID, stage, &next)
+	return PollOutcome{Status: stage}, nil
 }
 
 // DownloadOutputs fetches and normalizes output URLs. policy != nil uses video download retries.
@@ -416,12 +416,23 @@ func (c *Client) downloadWorkflowOutputs(ctx context.Context, artifacts []workfl
 		c.updateReceipt(ctx, taskID, "downloading", nil)
 	}
 	outputs := make([]map[string]interface{}, 0, len(artifacts))
-	appendOutput := func(artifact workflowOutput, mimeType string, data []byte) {
+	appendOutput := func(artifact workflowOutput, mimeType string, data []byte) error {
 		value, _ := workflowOutputValue(mimeType, data).(map[string]interface{})
 		if value == nil {
-			return
+			return nil
 		}
 		kind := "file"
+		if strings.EqualFold(strings.TrimSpace(strings.Split(mimeType, ";")[0]), "text/plain") {
+			if !utf8.Valid(data) {
+				return errors.New("RunningHub 文字输出不是有效的 UTF-8 文本")
+			}
+			text := strings.TrimPrefix(string(data), "\ufeff")
+			if strings.TrimSpace(text) == "" {
+				return nil
+			}
+			kind = "text"
+			value = map[string]interface{}{"text": text, "dataUrl": "", "mimeType": "text/plain", "bytes": len([]byte(text))}
+		}
 		for _, candidate := range []string{"image", "video", "audio"} {
 			if strings.HasPrefix(mimeType, candidate+"/") {
 				kind = candidate
@@ -435,15 +446,24 @@ func (c *Client) downloadWorkflowOutputs(ctx context.Context, artifacts []workfl
 			value["sourceNodeId"] = artifact.NodeID
 		}
 		outputs = append(outputs, value)
+		return nil
 	}
 	for _, artifact := range artifacts {
+		if artifact.Text != "" {
+			if err := appendOutput(artifact, "text/plain", []byte(artifact.Text)); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		rawURL := artifact.URL
 		if strings.HasPrefix(rawURL, "data:") {
 			mimeType, data, err := decodeDataURL(rawURL)
 			if err != nil {
 				return nil, err
 			}
-			appendOutput(artifact, mimeType, data)
+			if err := appendOutput(artifact, mimeType, data); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		if !isPublicMediaURL(rawURL) {
@@ -471,13 +491,40 @@ func (c *Client) downloadWorkflowOutputs(ctx context.Context, artifacts []workfl
 			return nil, fmt.Errorf("下载 RunningHub 产物失败：%w", err)
 		}
 		mimeType = runningHubOutputMimeType(rawURL, mimeType)
-		appendOutput(artifact, mimeType, data)
+		if err := appendOutput(artifact, mimeType, data); err != nil {
+			return nil, err
+		}
 	}
 	if len(outputs) == 0 {
 		return nil, errors.New("RunningHub 返回的产物类型不受支持")
 	}
 	mode := outputs[0]["mediaType"]
 	return map[string]interface{}{"mode": mode, "outputs": outputs}, nil
+}
+
+func selectWorkflowTextOutput(result map[string]interface{}, nodeID string) {
+	result["mode"] = "text"
+	delete(result, "primaryOutputId")
+	delete(result, "outputParameterWarning")
+	outputs, _ := result["outputs"].([]map[string]interface{})
+	nodeID = strings.TrimSpace(nodeID)
+	var candidates []map[string]interface{}
+	for _, output := range outputs {
+		if output["mediaType"] == "text" && (nodeID == "" || output["sourceNodeId"] == nodeID) {
+			candidates = append(candidates, output)
+		}
+	}
+	if len(candidates) == 1 {
+		result["primaryOutputId"] = candidates[0]["id"]
+		return
+	}
+	if nodeID != "" && len(candidates) == 0 {
+		result["outputParameterWarning"] = "工作流未返回已配置的主文字输出，请检查输出节点或在结果列表中选择"
+	} else if len(candidates) == 0 {
+		result["outputParameterWarning"] = "工作流未返回文字，请在结果列表中查看其他输出"
+	} else {
+		result["outputParameterWarning"] = "工作流返回多份文字，请在结果列表中选择主输出"
+	}
 }
 
 func (c *Client) execute(ctx context.Context, req Request) ([]byte, string, error) {

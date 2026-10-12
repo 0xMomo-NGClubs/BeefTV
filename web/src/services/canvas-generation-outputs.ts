@@ -10,6 +10,13 @@ export function materializedCanvasGenerationOutputs(task: GenerationTask, select
     return selected.filter((item) => item.mediaType !== "file").map((selection) => {
         const output = outputs.find((item) => item.outputIndex === selection.outputIndex);
         const canonical = task.outputs?.find((item) => item.outputIndex === selection.outputIndex);
+        if (output?.mediaType === "text") {
+            if (canonical?.mediaType !== "text" || canonical.materializationErrorCode || !output.text?.trim()
+                || canonical.text !== output.text || selection.mediaType !== "text" || selection.text !== output.text) {
+                throw new Error("文字输出尚未就绪或已发生变化，请刷新结果后重试");
+            }
+            return output;
+        }
         if (!output || !canonical?.materializedAssetId || !canonical.resourceId
             || canonical.mediaType !== output.mediaType || selection.mediaType !== output.mediaType
             || output.storageKey !== `resource:${canonical.resourceId}` || selection.storageKey !== output.storageKey) {

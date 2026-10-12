@@ -15,7 +15,7 @@ import { applyGenerationConsumerEffect, generationEffectApplied } from "@/servic
 import { attachNodeEffectKey } from "@/services/generation-task-materializer";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
-import { primaryGenerationOutput } from "@/lib/generation-outputs";
+import { primaryGenerationOutput, primaryTextGenerationOutput } from "@/lib/generation-outputs";
 
 export function generationTaskInput(task: GenerationTask) {
     if (!task.inputJson) return null;
@@ -156,7 +156,10 @@ export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: 
     const prompt = node.metadata?.prompt || task.prompt;
     const result = parseBackendGenerationResult(task);
 
-    if (result.outputs?.length && !primaryGenerationOutput(result.outputs, mode)) {
+    if (mode === "text" && result.outputs?.length && !result.text) {
+        return { ...node, metadata: { ...node.metadata, content: undefined, richText: undefined, assetId: undefined, storageKey: undefined, prompt, ...completedTaskMetadata(task), status: "success", outputParameterWarning: result.outputParameterWarning || "请选择工作流主文字输出" } };
+    }
+    if (mode !== "text" && result.outputs?.length && !primaryGenerationOutput(result.outputs, mode)) {
         return { ...node, metadata: applyGeneratedMediaResultMetadata(node, { content: undefined, storageKey: undefined, videoPreview: undefined, status: "success", outputParameterWarning: "工作流未返回当前节点类型的媒体，请在结果列表中预览或添加其他输出" }, { prompt, ...completedTaskMetadata(task) }) };
     }
 
@@ -244,7 +247,7 @@ export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: 
     return {
         ...node,
         type: CanvasNodeType.Text,
-        metadata: { ...node.metadata, content: result.text, richText: undefined, prompt, ...completedTaskMetadata(task), status: "success", errorDetails: undefined, generationErrorCode: undefined, resourceReloadAvailable: undefined, failedPromptFingerprint: undefined },
+        metadata: { ...node.metadata, content: result.text, richText: undefined, prompt, ...completedTaskMetadata(task), status: "success", outputParameterWarning: undefined, errorDetails: undefined, generationErrorCode: undefined, resourceReloadAvailable: undefined, failedPromptFingerprint: undefined },
     };
 }
 
@@ -354,7 +357,7 @@ function completedTaskMetadata(task: GenerationTask): CanvasNodeMetadata {
     return {
         generationOutputs: result.outputs,
         generationOutputTaskId: result.outputs ? task.id : undefined,
-        primaryOutputId: result.outputs ? primaryGenerationOutput(result.outputs, generationTaskMode(task))?.id : undefined,
+        primaryOutputId: result.outputs ? (generationTaskMode(task) === "text" ? primaryTextGenerationOutput(result.outputs, result.primaryOutputId, result.outputParameterWarning) : primaryGenerationOutput(result.outputs, generationTaskMode(task)))?.id : undefined,
         taskFailureDiagnostics: task.failureDiagnostics,
         taskProviderRequestId: task.providerRequestId,
         taskId: task.id,

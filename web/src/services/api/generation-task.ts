@@ -1,5 +1,5 @@
 import { getMediaBlob } from "@/services/file-storage";
-import { primaryGenerationOutput, type GenerationOutput } from "@/lib/generation-outputs";
+import { primaryGenerationOutput, primaryTextGenerationOutput, type GenerationOutput } from "@/lib/generation-outputs";
 import { resolveReferenceMediaDuration } from "@/lib/reference-media-metadata";
 import { getImageBlob } from "@/services/image-storage";
 import { resourceIdFromStorageKey, resourceStorageKey, uploadResourceFile } from "@/services/api/resources";
@@ -25,6 +25,8 @@ export type BackendGenerationMode = "text" | "image" | "video" | "audio";
 
 export type BackendGenerationResult = {
     outputs?: GenerationOutput[];
+    primaryOutputId?: string;
+    outputParameterWarning?: string;
     mode?: BackendGenerationMode | "file";
     images?: Array<{ dataUrl: string; url?: string; storageKey?: string; width?: number; height?: number; bytes?: number; mimeType?: string }>;
     video?: { dataUrl: string; url?: string; storageKey?: string; previewUrl?: string; width?: number; height?: number; durationMs?: number; bytes?: number; mimeType?: string };
@@ -279,7 +281,8 @@ function usesArkVideoAssetReference(config: AiConfig) {
 async function createAndWaitGenerationTask(options: BackendGenerationTaskOptions, prepared: PreparedGenerationReferences, dependencies: GenerationTaskDependencies) {
     const task = await createBackendGenerationTask(options, prepared, dependencies);
     const { signal, onTaskUpdate, onTextDelta } = options;
-    const completed = await dependencies.waitTask(task.id, { signal, initialTask: task, onTaskUpdate, onTextDelta, expectedScope: options.expectedScope });
+    const workflow = resolveGenerationWorkflowExecution(options.config, options.mode);
+    const completed = await dependencies.waitTask(task.id, { signal, initialTask: task, onTaskUpdate, onTextDelta: workflow ? undefined : onTextDelta, expectedScope: options.expectedScope });
     return parseBackendGenerationResult(completed);
 }
 
@@ -367,7 +370,7 @@ function backendGenerationTaskInput(options: BackendGenerationTaskOptions, prepa
             config: backendProviderConfig(config, mode),
             capabilityOptions: logicalModelId ? logicalCapabilityOptions(config, mode) : undefined,
             textHistory: options.textHistory,
-            ...(mode === "text" ? { textOptions: { stream: options.streamText !== false, thinking: options.enableThinking === true } } : {}),
+            ...(mode === "text" ? { textOptions: { stream: !workflow && options.streamText !== false, thinking: !workflow && options.enableThinking === true } } : {}),
             referenceImages: prepared.referenceImages,
             referenceVideos: prepared.referenceVideos,
             referenceAudios: prepared.referenceAudios,
@@ -529,6 +532,8 @@ function workflowProviderConfig(config: AiConfig, requestConfig: ReturnType<type
         webappId: workflow.webappId,
         workflowJson: workflow.workflowJson,
         workflowFields: workflow.workflowFields,
+        optionalImageMode: workflow.optionalImageMode,
+        primaryTextOutputNodeId: workflow.primaryTextOutputNodeId,
         runningHubUseWallet: false,
         runningHubWalletApiKey: "",
         capabilityConfig: modelCapabilityConfigFor(config, requestConfig.model),
@@ -581,6 +586,7 @@ export function parseBackendGenerationResult(task: GenerationTask): BackendGener
         result.images = result.outputs.filter((item) => item.mediaType === "image");
         result.video = primaryGenerationOutput(result.outputs, "video");
         result.audio = primaryGenerationOutput(result.outputs, "audio");
+        result.text = primaryTextGenerationOutput(result.outputs, result.primaryOutputId, result.outputParameterWarning)?.text;
     }
     return result;
 }

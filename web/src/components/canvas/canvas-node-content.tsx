@@ -3,6 +3,7 @@ import { AlertCircle, BookOpenCheck, Clock3, Download, FileText, Image as ImageI
 
 import { VideoPlayer } from "@/components/video-player";
 import { CanvasGenerationResults } from "./canvas-generation-results";
+import { CanvasGenerationTaskRefresh } from "./canvas-generation-task-refresh";
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { GenerationFailureNotice } from "@/components/generation/generation-failure-notice";
 import { explainGenerationError } from "@/lib/generation-error";
@@ -86,13 +87,13 @@ export function CanvasNodeContent(props: CanvasNodeContentProps) {
     if (props.node.type === ART_CRITIQUE_NODE_TYPE) return <ArtCritiqueNodeContent node={props.node} />;
     if (props.node.type === MEDIA_CONVERSION_NODE_TYPE) return <MediaConversionNodeContent node={props.node} theme={props.theme} />;
     if (props.isBatchRoot) return <ImageNodeContent {...props} />;
-    if (props.node.metadata?.status === "loading") return <LoadingContent node={props.node} theme={props.theme} onOpenTaskDetails={props.onOpenTaskDetails} onCancelTask={props.onCancelTask} />;
-    if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} onReloadResource={props.onReloadResource} onOpenTaskDetails={props.onOpenTaskDetails} />;
+    if (props.node.metadata?.status === "loading") return <div className="relative h-full w-full"><LoadingContent node={props.node} theme={props.theme} onOpenTaskDetails={props.onOpenTaskDetails} onCancelTask={props.onCancelTask} /><CanvasGenerationTaskRefresh node={props.node} /></div>;
+    if (props.node.metadata?.status === "error") return <div className="relative flex h-full w-full items-center justify-center"><ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} onReloadResource={props.onReloadResource} onOpenTaskDetails={props.onOpenTaskDetails} /><CanvasGenerationTaskRefresh node={props.node} /></div>;
 
     const pluginDefinition = getNodeDefinition(props.node.type)?.plugin;
     if (pluginDefinition) return <PluginCanvasNodeContent {...props} renderer={pluginDefinition.renderer} schema={pluginDefinition.schema} />;
     const Renderer = nodeContentRenderers[props.node.type];
-    return Renderer ? <div className="relative h-full w-full"><Renderer {...props} />{!props.node.metadata?.content && props.node.metadata?.outputParameterWarning ? <p className="absolute left-2 right-2 top-2 text-xs" style={{color:props.theme.node.muted}}>{props.node.metadata.outputParameterWarning}</p> : null}<CanvasGenerationResults node={props.node} /></div> : <UnknownNodeContent theme={props.theme} />;
+    return Renderer ? <div className="relative h-full w-full"><Renderer {...props} />{!props.node.metadata?.content && props.node.metadata?.outputParameterWarning ? <p className="absolute left-2 right-2 top-2 text-xs" style={{color:props.theme.node.muted}}>{props.node.metadata.outputParameterWarning}</p> : null}<CanvasGenerationResults node={props.node} /><CanvasGenerationTaskRefresh node={props.node} /></div> : <UnknownNodeContent theme={props.theme} />;
 }
 
 function PluginCanvasNodeContent({ node, theme, renderer, schema }: CanvasNodeContentProps & { renderer: "declarative" | "sandbox"; schema: Record<string, unknown> }) {

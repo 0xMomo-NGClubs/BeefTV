@@ -56,6 +56,10 @@ func normalizeManagementAppFields(raw any, capability string) []map[string]any {
 
 func collectManagementWorkflowFields(workflow map[string]any, capability string) []map[string]any {
 	fields := make([]map[string]any, 0)
+	var textInputs map[string]bool
+	if capability == "text" {
+		textInputs = textWorkflowInputNodes(workflow)
+	}
 	promptNodeID := ""
 	promptFieldName := ""
 	if promptFields := runningHubPromptFallback(workflow, "prompt"); len(promptFields) > 0 {
@@ -105,10 +109,14 @@ func collectManagementWorkflowFields(workflow map[string]any, capability string)
 				field["role"] = "prompt"
 				field["enabled"] = true
 			} else if source := managementAutomaticInputSource(fieldName, fieldType); source != "" {
-				field["source"] = source
-				field["sourceAutomatic"] = true
 				field["role"] = "media"
-				field["enabled"] = true
+				if len(textInputs) == 0 || textInputs[nodeID] {
+					field["source"] = source
+					field["sourceAutomatic"] = true
+					field["enabled"] = true
+				} else {
+					field["enabled"] = false
+				}
 			}
 			if isManagementSeedField(fieldName) {
 				field["randomEnabled"] = true
@@ -117,6 +125,36 @@ func collectManagementWorkflowFields(workflow map[string]any, capability string)
 		}
 	}
 	return applyManagementFieldDefaults(fields, capability)
+}
+
+// Only known published text outputs define the default input subgraph. Extra
+// preview/save branches stay configurable without taking reference slot zero.
+func textWorkflowInputNodes(workflow map[string]any) map[string]bool {
+	visited := map[string]bool{}
+	var visit func(string)
+	visit = func(id string) {
+		if visited[id] {
+			return
+		}
+		visited[id] = true
+		node, _ := workflow[id].(map[string]any)
+		inputs, _ := node["inputs"].(map[string]any)
+		for _, value := range inputs {
+			if isWorkflowLinkValue(value) {
+				link, _ := value.([]interface{})
+				if len(link) > 0 {
+					visit(stringValue(link[0]))
+				}
+			}
+		}
+	}
+	for id, value := range workflow {
+		node, _ := value.(map[string]any)
+		if node["class_type"] == "ShellAgentPluginOutputText" {
+			visit(id)
+		}
+	}
+	return visited
 }
 
 func managementWorkflowFieldSafeToOverride(classType string, fieldName string) bool {

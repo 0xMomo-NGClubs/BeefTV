@@ -4,10 +4,11 @@ import { AppDrawer } from "@/components/ui/product/app-drawer";
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { useResourceVideoPlayback } from "@/hooks/use-resource-video-playback";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
-import { getActiveUserScopeEpoch, subscribeUserScope } from "@/lib/user-scope";
-import { downloadGenerationOutput, readGenerationOutputBlob } from "@/services/generation-output-media";
+import { downloadGenerationOutput } from "@/services/generation-output-media";
 import { isWailsNativeShell } from "@/services/desktop-media-save";
 import type { GenerationOutput } from "@/lib/generation-outputs";
+import { GenerationTextOutput } from "@/components/generation/generation-text-output";
+import { GenerationAudioOutput } from "@/components/generation/generation-audio-output";
 import type { CanvasNodeData } from "@/types/canvas";
 import { useCanvasNodeActions } from "./canvas-node-action-context";
 
@@ -45,7 +46,7 @@ export function CanvasGenerationResults({ node }: { node: CanvasNodeData }) {
                 {outputs.map((output) => {
                     const primary = output.id === node.metadata?.primaryOutputId;
                     return <div key={output.id} className="flex flex-col gap-2 rounded-lg p-3" style={{ background: "var(--card-surface)" }}>
-                        <button type="button" className="text-left text-sm" aria-pressed={preview.id === output.id} onClick={() => setPreviewId(output.id)}>输出 {output.outputIndex + 1} · {output.mediaType === "video" ? "视频" : output.mediaType === "audio" ? "音频" : output.mediaType === "image" ? "图片" : "文件"}{output.sourceNodeId ? ` · 节点 ${output.sourceNodeId}` : ""}{primary ? " · 主输出" : ""}</button>
+                        <button type="button" className="text-left text-sm" aria-pressed={preview.id === output.id} onClick={() => setPreviewId(output.id)}>输出 {output.outputIndex + 1} · {output.mediaType === "text" ? "文字" : output.mediaType === "video" ? "视频" : output.mediaType === "audio" ? "音频" : output.mediaType === "image" ? "图片" : "文件"}{output.sourceNodeId ? ` · 节点 ${output.sourceNodeId}` : ""}{primary ? " · 主输出" : ""}</button>
                         <div className="flex flex-wrap gap-2">
                             {output.mediaType === node.type && selectGenerationOutput ? <Button size="small" disabled={primary || !!applying} loading={applying === `primary:${output.id}`} onClick={() => void apply(`primary:${output.id}`, (signal) => selectGenerationOutput(node, output, signal))}>设为主输出</Button> : null}
                             {output.mediaType !== "file" && addGenerationOutputs ? <Button size="small" disabled={!!applying} loading={applying === `add:${output.id}`} onClick={() => void apply(`add:${output.id}`, (signal) => addGenerationOutputs(node, [output], signal))}>添加到画布</Button> : null}
@@ -53,7 +54,7 @@ export function CanvasGenerationResults({ node }: { node: CanvasNodeData }) {
                         </div>
                     </div>;
                 })}
-                {addGenerationOutputs ? <Button disabled={!!applying} loading={applying === "all"} onClick={() => void apply("all", (signal) => addGenerationOutputs(node, outputs, signal))}>将全部媒体添加到画布</Button> : null}
+                {addGenerationOutputs ? <Button disabled={!!applying} loading={applying === "all"} onClick={() => void apply("all", (signal) => addGenerationOutputs(node, outputs, signal))}>将全部结果添加到画布</Button> : null}
             </div>
         </AppDrawer>
     </>;
@@ -65,9 +66,10 @@ function outputURL(output: GenerationOutput) {
 }
 
 function OutputPreview({ output }: { output: GenerationOutput }) {
+    if (output.mediaType === "text") return <GenerationTextOutput text={output.text || ""} />;
     if (output.mediaType === "video") return <OutputVideoPreview output={output} />;
     if (output.mediaType === "image") return <CachedResourceImage className="max-h-72 w-full object-contain" src={outputURL(output)} storageKey={output.storageKey} alt={`输出 ${output.outputIndex + 1}`} />;
-    if (output.mediaType === "audio") return <OutputAudioPreview output={output} />;
+    if (output.mediaType === "audio") return <GenerationAudioOutput output={output} />;
     return <p className="text-sm">{output.mimeType || "文件"} · 请下载查看</p>;
 }
 
@@ -92,33 +94,6 @@ function OutputDownload({ output }: { output: GenerationOutput }) {
         }
     };
     return <Button size="small" loading={loading} onClick={() => void download()}>下载</Button>;
-}
-
-function OutputAudioPreview({ output }: { output: GenerationOutput }) {
-    const [state, setState] = useState({ identity: "", url: "", loading: true, error: "" });
-    const [retry, setRetry] = useState(0);
-    const [scopeEpoch, setScopeEpoch] = useState(getActiveUserScopeEpoch);
-    const identity = JSON.stringify([output.storageKey, output.dataUrl, output.url, scopeEpoch]);
-    useEffect(() => subscribeUserScope((epoch) => setScopeEpoch(epoch.generation)), []);
-    useEffect(() => {
-        const controller = new AbortController();
-        let ownedUrl = "";
-        setState({ identity, url: "", loading: true, error: "" });
-        void readGenerationOutputBlob(output, controller.signal).then((blob) => {
-            if (controller.signal.aborted) return;
-            ownedUrl = URL.createObjectURL(blob);
-            setState({ identity, url: ownedUrl, loading: false, error: "" });
-        }).catch((error) => {
-            if (!controller.signal.aborted) setState({ identity, url: "", loading: false, error: error instanceof Error ? error.message : "音频读取失败" });
-        });
-        return () => { controller.abort(); if (ownedUrl) URL.revokeObjectURL(ownedUrl); };
-    }, [output, identity, retry]);
-    const current = state.identity === identity;
-    return <div>
-        {current && state.url ? <audio controls src={state.url} className="w-full" onError={() => setState((state) => ({ ...state, error: "音频暂时无法播放，请重新读取" }))} /> : null}
-        {!current || state.loading ? <p role="status">正在读取音频…</p> : null}
-        {current && state.error ? <div role="alert">{state.error}<Button size="small" onClick={() => setRetry((value) => value + 1)}>重新读取</Button></div> : null}
-    </div>;
 }
 
 function OutputVideoPreview({ output }: { output: GenerationOutput }) {

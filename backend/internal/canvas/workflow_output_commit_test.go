@@ -65,3 +65,34 @@ func TestWorkflowExpandedOutputsAndPrimaryChangesCanBeSavedAndReloaded(t *testin
 		}
 	}
 }
+
+func TestWorkflowTextOutputsSaveReloadAndSwitchWithoutAssetIDs(t *testing.T) {
+	s := newCanvasHistoryTestService(t)
+	outputs := []any{map[string]any{"id": "output:0", "outputIndex": 0, "mediaType": "text", "text": "分析"}, map[string]any{"id": "output:1", "outputIndex": 1, "mediaType": "text", "text": "<Picture 1>\n增强后的提示词"}}
+	nodes := []any{map[string]any{"id": "text-result", "type": "text", "metadata": map[string]any{"generationOutputs": outputs, "generationOutputTaskId": "text-task", "status": "success"}}, map[string]any{"id": "expanded-text", "type": "text", "metadata": map[string]any{"content": "分析", "generatedFromNodeId": "text-result"}}}
+	var revision int64
+	for _, index := range []int{1, 0, 1} {
+		meta := nodes[0].(map[string]any)["metadata"].(map[string]any)
+		meta["primaryOutputId"] = fmt.Sprintf("output:%d", index)
+		meta["content"] = outputs[index].(map[string]any)["text"]
+		raw, _ := json.Marshal(map[string]any{"id": "text-canvas", "revision": revision, "title": "文字工作流", "nodes": nodes, "connections": []any{}})
+		saved, err := s.UpsertUserCanvasProject("owner", raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		revision = saved.Revision
+		stored, err := s.UserCanvasProject("owner", "text-canvas")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var document struct {
+			Nodes []struct{ Metadata map[string]any }
+		}
+		if err := json.Unmarshal(stored, &document); err != nil {
+			t.Fatal(err)
+		}
+		if document.Nodes[0].Metadata["content"] != meta["content"] || document.Nodes[0].Metadata["assetId"] != nil || len(document.Nodes) != 2 {
+			t.Fatalf("stored=%s", stored)
+		}
+	}
+}

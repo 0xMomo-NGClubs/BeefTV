@@ -15,7 +15,7 @@ import { seedancePortraitLabel, seedancePortraitModel, type VideoPriceQuote } fr
 export type ApiCallFormat = "openai" | "gemini" | "claude";
 export type ChannelInterfaceType = ModelProtocol;
 export type ChannelHeader = { name: string; value: string };
-export type RunningHubCapability = "image" | "video" | "audio";
+export type RunningHubCapability = "text" | "image" | "video" | "audio";
 export type RunningHubWorkflowKind = "workflow" | "app";
 
 export type WorkflowFieldMapping = {
@@ -48,7 +48,7 @@ export type WorkflowFieldMapping = {
 };
 
 export function normalizeRunningHubCapability(value: unknown, fallback: RunningHubCapability = "image"): RunningHubCapability {
-    return value === "image" || value === "video" || value === "audio" ? value : fallback;
+    return value === "text" || value === "image" || value === "video" || value === "audio" ? value : fallback;
 }
 
 export function normalizeRunningHubWorkflowKind(value: unknown): RunningHubWorkflowKind {
@@ -326,8 +326,9 @@ export type RunningHubWorkflow = {
     description?: string;
     fields?: WorkflowFieldMapping[];
     workflowJson?: Record<string, unknown>;
-    optionalImageMode?: string;
+    optionalImageMode?: "disconnect" | "retain";
     videoControls?: WorkflowVideoControls;
+    primaryTextOutputNodeId?: string;
     raw?: Record<string, unknown>;
 };
 

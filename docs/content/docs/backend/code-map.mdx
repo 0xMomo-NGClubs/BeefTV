@@ -18,11 +18,19 @@ RunningHub 设置由 `web/src/pages/settings/runninghub-settings-pane.tsx` 管�
 
 工作流生成上下文自动合并连接的文字，去除已显式引用的重复追加。`task/admission.go` 按模型目录解析后的有效配置判断是否允许空提示词，`generation/executor.go` 在配置解析和工作流分流后保留普通模型的非空校验。`provider/workflow/mapping.go` 对空提示词省略覆盖，即使字段标为必填也由上游判断，不伪造提示词或覆盖默认值；其他字段校验保持有效。
 
+`workflow-prompt-mapping.ts` 与 `workflow-prompt-mapping-editor.tsx` 共用现有字段的 `source = "prompt"`，为设置页提供目标选择与开关，为测试画布和正式参数面板提供接收位置。`canvas-project-generation.ts` 防止节点旧参数值清除提示词绑定；`provider/workflow/client.go` 只在没有字段策略时推断提示词目标，显式取消或关闭映射不会触发替代绑定。
+
+`provider/workflow/image_inputs.go` 根据本次已提供图片和 `optionalImageMode`，复制 API JSON 并省略已映射的空动态参考端口；固定输入、必填项及其他输出保持原图。仅拓扑发生变化时由 `client.go` 提交官方完整 `workflow` 字符串，提示词、上传路径与参数继续使用既有节点映射。`workflow-image-inputs.ts` 为测试画布和正式参数弹层显示同一策略的空槽位提示。App 和普通模型不进入拓扑转换，恢复原任务也不经过创建路径。
+
+`workflow-test-task.ts` 按账号及工作流身份保存最近测试任务 ID，读取持久任务用于页面恢复。`canvas-generation-task-refresh.tsx` 通过画布动作调用既有结果消费链路；测试页和任务详情复用 `query-provider`。`app/provider_task_recovery.go` 校验用户、原任务 ID 和协议，使用恢复租约并调用 `provider/workflow.Client.QueryTask` 单次查询和读取产物；正在执行的任务不重复查询。后台 `Poll` 与手动 `QueryTask` 共用状态及多输出解析，各用途均通过既有轮询端口处理临时断线。
+
 `generation-output-media.ts` 通过共享鉴权客户端读取输出字节，并按运行环境选择浏览器 Blob 下载或 Wails 的 owner 资源保存接口；音频预览在结果面板管理取消、账号切换和 Blob URL 释放。展开输出复用 `canvas-generation-layout.ts` 的空位计算，避免分次添加时覆盖已有节点。
 
 `services/canvas-generation-outputs.ts` 在添加媒体或选择主输出前查询任务交付记录，按输出索引核对资源并取得对应素材 ID；`canvas-generation-outputs.ts` 同时写入素材与资源引用，随后沿用普通画布保存流程。`app/workflow_adapter.go` 将上游排队、运行和下载状态交给租约约束的生成阶段端口，不修改任务进度或终态；`provider/workflow/client.go` 在读取产物前记录下载阶段。
 
 设置页私有的 `runninghub-metadata-request.ts` 在请求存续期间订阅站点、Key 和账号变化，立即取消旧请求并在写回前复核身份；订阅在取消或完成后释放。`provider/workflow/protocol.go` 按固定顺序识别规范化的输出字段。`task.CanonicalOutputs` 保留主线的 `taskType` 参数，深度捕获任务使用独立结果结构，工作流任务使用多输出数组；交付、恢复和绑定继续共用现有任务机制。
+
+文字工作流仍经过同一生成入口：`runninghub-workflow-text` 使用持久任务等待，`provider/workflow` 识别内联文字及 TXT 并保留来源节点。`task.CanonicalOutput.Text` 与交付记录保存原文，文字不进入媒体素材物化；`taskbinding` 按真实输出索引回填文字和结果集合。`workflow-text-outputs.ts` 为设置页提供输出节点候选及唯一已知文字输出的默认绑定；`generation-text-output.tsx` 在测试画布和正式结果面板共用文字预览、复制能力，音频预览共用 `generation-audio-output.tsx` 的鉴权、取消和账号切换处理。主文字选择、独立结果节点及普通画布保存沿用现有结果操作链路。
 
 ```text
 Wails / local dev

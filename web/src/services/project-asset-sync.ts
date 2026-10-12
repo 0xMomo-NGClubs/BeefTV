@@ -24,6 +24,7 @@ import { persistWorkspaceAssetLink } from "@/services/workspace-asset-repository
 import { usesBrowserLocalResourceStore, workspaceAssetHasCanonicalMediaPersist } from "@/services/workspace-resource-storage";
 import { bindBackendConversationMessageResult, type BindBackendConversationMessageRuntime } from "@/services/conversation-generation-consumer";
 import type { StoredCreationConversation } from "@/services/creation-conversation-store";
+import { generationTaskOutputReady } from "@/lib/generation-outputs";
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
@@ -205,7 +206,7 @@ function generationTaskResult(task: GenerationTask): BackendGenerationResult {
 export function projectGenerationTaskResult(task: GenerationTask, result?: BackendGenerationResult): GenerationTask {
     const projectedResult = result ?? generationTaskResult(task);
     const projectedOutputs: GenerationTaskOutput[] = projectedResult.outputs?.length
-        ? projectedResult.outputs.map((output) => ({ outputIndex: output.outputIndex, mediaType: output.mediaType, resourceId: output.resourceId || resourceIdFromStorageKey(output.storageKey), providerArtifactRef: output.storageKey || output.url || output.dataUrl }))
+        ? projectedResult.outputs.map((output) => ({ outputIndex: output.outputIndex, mediaType: output.mediaType, text: output.text, resourceId: output.resourceId || resourceIdFromStorageKey(output.storageKey), providerArtifactRef: output.storageKey || output.url || output.dataUrl }))
         : projectedResult.images?.length
         ? projectedResult.images.map((image, outputIndex) => ({
               outputIndex,
@@ -244,7 +245,7 @@ export function projectGenerationTaskResult(task: GenerationTask, result?: Backe
         ...task,
         ...(result ? { resultJson: JSON.stringify(result) } : {}),
         outputs,
-        ...(task.status === "succeeded" && outputs.length && !outputs.every((output) => output.materializedAssetId || output.mediaType === "file" && output.resourceId) ? { resultState: "PENDING_MATERIALIZATION" as const } : {}),
+        ...(task.status === "succeeded" && outputs.length && !outputs.every(generationTaskOutputReady) ? { resultState: "PENDING_MATERIALIZATION" as const } : {}),
     };
 }
 

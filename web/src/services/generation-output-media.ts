@@ -7,6 +7,10 @@ import { downloadOwnedOrBrowserMedia, isWailsNativeShell, saveOwnedOrBrowserBlob
 
 export async function readGenerationOutputBlob(output: GenerationOutput, signal?: AbortSignal): Promise<Blob> {
     signal?.throwIfAborted();
+    if (output.mediaType === "text") {
+        if (!output.text?.trim()) throw new Error("文字输出没有可读取的内容");
+        return new Blob([output.text], { type: "text/plain;charset=utf-8" });
+    }
     const expectedScope = captureUserScope();
     const fallback = output.dataUrl || output.url || "";
     const resourceId = ownedResourceIdFromMediaRef(output.storageKey, fallback);
@@ -32,9 +36,9 @@ export async function downloadGenerationOutput(output: GenerationOutput, signal?
     signal?.throwIfAborted();
     const expectedScope = captureUserScope();
     const fallback = output.dataUrl || output.url || "";
-    const extension = mediaFileExtension(output.mimeType, fallback) || "bin";
+    const extension = output.mediaType === "text" ? "txt" : mediaFileExtension(output.mimeType, fallback) || "bin";
     const fileName = `output-${output.outputIndex + 1}.${extension}`;
-    if (isWailsNativeShell()) {
+    if (output.mediaType !== "text" && isWailsNativeShell()) {
         return downloadOwnedOrBrowserMedia({ fileName, resourceId: ownedResourceIdFromMediaRef(output.storageKey, fallback) });
     }
     const blob = await readGenerationOutputBlob(output, signal);

@@ -69,8 +69,14 @@ func taskSummaryForOutput(task model.Task) TaskSummary {
 // 列表只暴露页面恢复所需的非敏感关联 ID，不下发完整任务输入或其他 metadata。
 func taskClientContext(raw string) *TaskClientContext {
 	var input struct {
+		Config struct {
+			WorkflowID string `json:"workflowId"`
+			WebappID   string `json:"webappId"`
+		} `json:"config"`
 		Metadata struct {
 			Source          string `json:"source"`
+			WorkflowID      string `json:"workflowId"`
+			WorkflowKind    string `json:"workflowKind"`
 			SceneID         string `json:"sceneId"`
 			NodeID          string `json:"nodeId"`
 			ConversationID  string `json:"conversationId"`
@@ -90,6 +96,20 @@ func taskClientContext(raw string) *TaskClientContext {
 	}
 	metadata := input.Metadata
 	context := &TaskClientContext{NodeID: metadata.NodeID}
+	if metadata.Source == "workflow_settings_test" {
+		context.Source = metadata.Source
+		context.WorkflowID = metadata.WorkflowID
+		context.WorkflowKind = metadata.WorkflowKind
+		if input.Config.WorkflowID != "" {
+			context.WorkflowID = input.Config.WorkflowID
+			context.WorkflowKind = "workflow"
+		}
+		if input.Config.WebappID != "" {
+			context.WorkflowID = input.Config.WebappID
+			context.WorkflowKind = "app"
+		}
+		return context
+	}
 	if metadata.Source == "director-panorama" && metadata.SceneID != "" {
 		context.Source = metadata.Source
 		context.SceneID = metadata.SceneID
@@ -284,6 +304,20 @@ func publicTaskInputJSON(raw string) string {
 		if value, ok := input[key]; ok {
 			public[key] = value
 		}
+	}
+	if metadata, ok := input["metadata"].(map[string]any); ok && metadata["source"] == "workflow_settings_test" {
+		identity := make(map[string]any, len(metadata)+2)
+		for key, value := range metadata {
+			identity[key] = value
+		}
+		config, _ := input["config"].(map[string]any)
+		if id, _ := config["workflowId"].(string); id != "" {
+			identity["workflowId"], identity["workflowKind"] = id, "workflow"
+		}
+		if id, _ := config["webappId"].(string); id != "" {
+			identity["workflowId"], identity["workflowKind"] = id, "app"
+		}
+		public["metadata"] = identity
 	}
 	if len(public) == 0 {
 		return ""

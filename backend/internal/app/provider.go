@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/provider/workflow"
 
 	"gorm.io/gorm"
 )
@@ -122,7 +123,7 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 	if input.Mode == "" && strings.HasPrefix(taskType, "video_") {
 		input.Mode = "video"
 	}
-	if input.Mode == "text" && strings.HasPrefix(taskType, "canvas_text") && input.AgentRequests == nil {
+	if input.Mode == "text" && strings.HasPrefix(taskType, "canvas_text") && input.AgentRequests == nil && !workflow.IsProviderInterface(input.Config.InterfaceType) {
 		textPublisher := newTaskTextStreamPublisher(s, userID, taskExecutionID(ctx))
 		input.OnTextDelta = textPublisher.Publish
 		defer textPublisher.Close()

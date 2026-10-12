@@ -70,10 +70,6 @@ func (immediatePoller) Download(ctx context.Context, _ string, _ PollPolicy, dow
 	return download(ctx)
 }
 
-type cancelSleep struct{ DefaultTimePolicy }
-
-func (cancelSleep) Sleep(context.Context, time.Duration) error { return context.Canceled }
-
 type denyPlugin struct{ err error }
 
 func (d denyPlugin) EnsureEnabled(context.Context, string) error { return d.err }
@@ -393,19 +389,22 @@ func TestCreateEmptySuccessEnvelopeIsCreateUncertain(t *testing.T) {
 
 func TestPollCancelDoesNotCreateNewTask(t *testing.T) {
 	polls := 0
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	exec := &scriptedExecutor{handler: func(req Request) ([]byte, string, error) {
 		if strings.Contains(req.URL, "/create") {
 			t.Fatal("cancel path must not create")
 		}
 		if strings.Contains(req.URL, "/outputs") {
 			polls++
+			cancel()
 			return []byte(`{"code":804,"msg":"running"}`), "application/json", nil
 		}
 		t.Fatalf("unexpected URL %s", req.URL)
 		return nil, "", nil
 	}}
-	client := &Client{Requests: exec, Time: cancelSleep{}, Poller: immediatePoller{}}
-	_, err := client.Poll(context.Background(), Config{APIKey: "k"}, "https://www.runninghub.cn", "orig-7", "image")
+	client := &Client{Requests: exec, Poller: immediatePoller{}}
+	_, err := client.Poll(ctx, Config{APIKey: "k"}, "https://www.runninghub.cn", "orig-7", "image")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}

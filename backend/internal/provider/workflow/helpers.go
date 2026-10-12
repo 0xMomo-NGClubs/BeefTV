@@ -10,9 +10,6 @@ import (
 	"time"
 )
 
-const defaultPollTimeout = time.Hour
-const legacyPollInterval = 2500 * time.Millisecond
-
 // defaultVideoPollInterval matches internal/app.defaultVideoPollInterval.
 // The provider worker owns videoPollPolicy; this is the mapping seam default.
 const defaultVideoPollInterval = 30 * time.Second
@@ -108,12 +105,3 @@ func (DefaultTimePolicy) Sleep(ctx context.Context, d time.Duration) error {
 		return nil
 	}
 }
-
-func (DefaultTimePolicy) PollDeadline(ctx context.Context) time.Time {
-	if deadline, ok := ctx.Deadline(); ok {
-		return deadline
-	}
-	return time.Now().Add(defaultPollTimeout)
-}
-
-func (DefaultTimePolicy) LegacyPollInterval() time.Duration { return legacyPollInterval }

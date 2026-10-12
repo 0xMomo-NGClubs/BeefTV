@@ -71,6 +71,7 @@ export async function executeTextGeneration({
                     config: generationConfig,
                     referenceImages: generationContext.referenceImages,
                     referenceVideos: generationContext.referenceVideos,
+                    referenceAudios: generationContext.referenceAudios,
                     signal: controller.signal,
                     metadata: { sourceNodeId: nodeId, ...taskContext, resolvedCharacterVersions: generationContext.resolvedCharacterVersions, ...skillMetadata },
                 },

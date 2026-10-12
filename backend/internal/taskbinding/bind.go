@@ -80,7 +80,7 @@ func Bind(ports Ports, userID string, req Request) (Receipt, error) {
 }
 
 func durablePatch(ports Ports, userID string, task model.Task, req Request) (NodePatch, error) {
-	if isTextTask(task) {
+	if isTextTask(task) && localtask.WorkflowPrimaryOutputIndex(task.ResultJSON, "text") < 0 {
 		return textPatch(task, req)
 	}
 	outputs, err := ports.GenerationOutputs(task.ID)
@@ -100,8 +100,16 @@ func durablePatch(ports Ports, userID string, task model.Task, req Request) (Nod
 				break
 			}
 		}
-		if !matched && (mode == "image" || mode == "video" || mode == "audio") {
-			return NodePatch{CanvasID: req.CanvasID, NodeID: req.NodeID, TaskID: req.TaskID, OutputIndex: req.OutputIndex, EffectKey: req.EffectKey, GenerationOutputs: workflowOutputs, CollectionOnly: true}, nil
+		var result struct {
+			Warning string `json:"outputParameterWarning"`
+		}
+		_ = json.Unmarshal([]byte(task.ResultJSON), &result)
+		if !matched && (mode == "text" || mode == "image" || mode == "video" || mode == "audio") || mode == "text" && result.Warning != "" && req.OutputIndex == 0 {
+			collectionType := ""
+			if mode == "text" {
+				collectionType = "text"
+			}
+			return NodePatch{CanvasID: req.CanvasID, NodeID: req.NodeID, TaskID: req.TaskID, OutputIndex: req.OutputIndex, EffectKey: req.EffectKey, GenerationOutputs: workflowOutputs, CollectionOnly: true, MediaType: collectionType}, nil
 		}
 	}
 	var output localtask.CanonicalOutput
@@ -115,6 +123,15 @@ func durablePatch(ports Ports, userID string, task model.Task, req Request) (Nod
 	}
 	if !found {
 		return NodePatch{}, precondition("output_not_ready", "任务产物尚未交付，不能绑定到画布")
+	}
+	if isTextTask(task) && output.MediaType != "text" || !isTextTask(task) && output.MediaType == "text" {
+		return NodePatch{}, invalid("output_type_mismatch", "主输出类型与原任务节点不匹配")
+	}
+	if output.MediaType == "text" {
+		if !localtask.OutputReady(output) {
+			return NodePatch{}, precondition("output_not_ready", "任务文字输出尚未就绪")
+		}
+		return NodePatch{CanvasID: req.CanvasID, NodeID: req.NodeID, TaskID: req.TaskID, OutputIndex: req.OutputIndex, EffectKey: req.EffectKey, GenerationOutputs: workflowOutputs, MediaType: "text", Content: output.Text}, nil
 	}
 	if strings.TrimSpace(output.MaterializationErrorCode) != "" && strings.TrimSpace(output.MaterializedAssetID) == "" {
 		return NodePatch{}, precondition(output.MaterializationErrorCode, "任务产物不可用，不能绑定到画布")
@@ -187,6 +204,18 @@ func workflowOutputReferences(ports Ports, userID, resultJSON string, outputs []
 	refs := make([]any, 0, len(result.Outputs))
 	for index, item := range result.Outputs {
 		output, exists := byIndex[index]
+		if exists && output.MediaType == "text" {
+			text, ok := item["text"].(string)
+			if !ok || text != output.Text || !localtask.OutputReady(output) {
+				return nil, precondition("output_not_ready", "工作流文字与交付记录不一致或尚未就绪")
+			}
+			ref := map[string]any{"id": fmt.Sprintf("output:%d", index), "outputIndex": index, "mediaType": "text", "text": text, "dataUrl": "", "mimeType": "text/plain"}
+			if source, ok := item["sourceNodeId"].(string); ok && source != "" {
+				ref["sourceNodeId"] = source
+			}
+			refs = append(refs, ref)
+			continue
+		}
 		if !exists || output.ResourceID == "" {
 			return nil, precondition("output_not_ready", "工作流输出资源尚未就绪")
 		}

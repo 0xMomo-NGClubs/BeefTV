@@ -100,7 +100,7 @@ func TestDBRuntimeVideoRestartRecovery(t *testing.T) {
 				t.Fatalf("restart resubmitted: %d", posts.Load())
 			}
 			if missingID {
-				if _, err := s.QueryFailedVideoTask(context.Background(), "local", task.ID); err == nil {
+				if _, err := s.QueryProviderTask(context.Background(), "local", task.ID); err == nil {
 					t.Fatal("manual query accepted a missing provider ID")
 				}
 				if stored.Status != model.TaskStatusFailed || stored.Stage != "submission_unknown" || polls.Load() != 0 {

@@ -13,7 +13,7 @@ func BundledWorkflowManifests() []protocol.Manifest {
 }
 
 func workflowPluginManifest(id, name, description string) protocol.Manifest {
-	capabilities := []protocol.Capability{protocol.CapabilityImage, protocol.CapabilityVideo, protocol.CapabilityAudio}
+	capabilities := []protocol.Capability{protocol.CapabilityText, protocol.CapabilityImage, protocol.CapabilityVideo, protocol.CapabilityAudio}
 	workflows := make([]protocol.ManifestWorkflow, 0, len(capabilities))
 	for _, capability := range capabilities {
 		workflows = append(workflows, protocol.ManifestWorkflow{
@@ -45,7 +45,7 @@ func workflowPluginManifest(id, name, description string) protocol.Manifest {
 
 func WorkflowIDForInterface(value string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "runninghub-workflow-image", "runninghub-workflow-video", "runninghub-workflow-audio":
+	case "runninghub-workflow-text", "runninghub-workflow-image", "runninghub-workflow-video", "runninghub-workflow-audio":
 		return WorkflowRunningHub, true
 	default:
 		return "", false

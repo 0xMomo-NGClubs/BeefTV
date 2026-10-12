@@ -53,7 +53,8 @@ test("canvas selects App rather than Workflow with the same id, and checks capab
     expect(execution?.webappId).toBe("app-id");
     expect(execution?.interfaceType).toBe("runninghub-workflow-image");
     expect(() => resolveGenerationWorkflowExecution(config, "video")).toThrow("用途为图片");
-    expect(resolveGenerationWorkflowExecution(config, "text")).toBeNull();
+    expect(() => resolveGenerationWorkflowExecution(config, "text")).toThrow("用途为图片");
+    expect(resolveGenerationWorkflowExecution({ ...config, taskWorkflowProvider: "model" }, "text")).toBeNull();
     usePluginStore.getState().setRuntimeStatuses({});
     expect(() => resolveGenerationWorkflowExecution(config, "image")).toThrow("插件未启用");
 });

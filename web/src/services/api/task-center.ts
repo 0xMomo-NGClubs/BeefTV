@@ -1,5 +1,5 @@
 import { generationErrorMessage } from "@/lib/generation-error";
-import { assertUserScope, isUserScopeAbandonedError, type CapturedUserScope } from "@/lib/user-scope-guard";
+import { assertUserScope, captureUserScope, isUserScopeAbandonedError, type CapturedUserScope } from "@/lib/user-scope-guard";
 import { http, apiBaseURL, type BackendEnvelope, type HttpRequestConfig } from "@/services/api/request";
 import { consumeTaskTextStream, createTaskTextStreamParser, type TaskTextStreamEvent } from "@/services/api/task-text-stream";
 import { recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
@@ -11,7 +11,8 @@ export type ProviderCancelStatus = "requested" | "confirmed" | "uncertain";
 export type GenerationTaskResultState = "NOT_AVAILABLE" | "PENDING_MATERIALIZATION" | "MATERIALIZING" | "READY" | "FAILED_RETRYABLE" | "FAILED_PERMANENT";
 export type GenerationTaskOutput = {
     outputIndex: number;
-    mediaType: "image" | "video" | "audio" | "file";
+    mediaType: "text" | "image" | "video" | "audio" | "file";
+    text?: string;
     providerArtifactRef?: string;
     resourceId?: string;
     materializedAssetId?: string;
@@ -57,6 +58,8 @@ export type GenerationTask = {
     createdAt: string;
     updatedAt: string;
     clientContext?: {
+        workflowId?: string;
+        workflowKind?: "workflow" | "app";
         source?: string;
         sceneId?: string;
         conversationId?: string;
@@ -309,12 +312,15 @@ export function cancelGenerationTask(id: string) {
     });
 }
 
-export function queryFailedVideoProviderTask(id: string) {
-    return http.post<ProviderTaskQueryResult>(`/tasks/${encodeURIComponent(id)}/query-provider`);
+export async function queryProviderTaskResult(id: string, options?: { signal?: AbortSignal }) {
+    const scope = captureUserScope();
+    const result = await http.post<ProviderTaskQueryResult>(`/tasks/${encodeURIComponent(id)}/query-provider`, undefined, { signal: options?.signal, timeout: 180_000 });
+    assertUserScope(scope);
+    return result;
 }
 
-export function canRetrieveVideoResult(task: GenerationTask) {
-    return task.status === "failed" && (task.type.startsWith("canvas_video") || task.type.startsWith("video_")) && Boolean(task.providerRequestId);
+export function canRetrieveGenerationResult(task: GenerationTask) {
+    return task.status === "failed" && (task.provider === "runninghub" || task.type.startsWith("canvas_video") || task.type.startsWith("video_")) && Boolean(task.providerRequestId);
 }
 
 export function refreshGenerationTaskStatus(id: string, options?: { signal?: AbortSignal }) {
@@ -568,6 +574,7 @@ async function taskTextStreamHTTPError(response: Response) {
 }
 
 function taskWaitTimeoutMs(task?: GenerationTask) {
+    if (task?.provider === "runninghub") return 32 * 60 * 1000;
     const type = task?.type || "";
     if (type.includes("storyboard")) return 13 * 60 * 1000;
     if (type.includes("video")) return 32 * 60 * 1000;

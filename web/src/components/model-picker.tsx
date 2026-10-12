@@ -205,7 +205,7 @@ export function ModelPicker({
                     </div>
                     {optionGroups.filter((group) => group.key === activeGroupKey).map((group) => <section key={group.key} className="canvas-model-picker-group canvas-model-picker-model-pane min-w-0 overflow-hidden">
                         <div className="canvas-model-picker-options grid min-w-0 gap-1">
-                            {!group.models.length ? <p className="p-2 text-xs" style={{ color: theme.node.muted }}>请先在设置中保存视频工作流</p> : null}
+                            {!group.models.length ? <p className="p-2 text-xs" style={{ color: theme.node.muted }}>请先在设置中保存对应用途的工作流</p> : null}
                             {group.models.map((modelGroup) => {
                                 const selected = modelGroup.models.includes(current);
                                 const additional = additionalOptions.get(modelGroup.models[0]);
