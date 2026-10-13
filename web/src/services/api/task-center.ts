@@ -1,8 +1,10 @@
 import { generationErrorMessage } from "@/lib/generation-error";
-import { assertUserScope, isUserScopeAbandonedError, type CapturedUserScope } from "@/lib/user-scope-guard";
+import { GENERATION_RESULT_FETCH_STAGE } from "@/lib/generation-delivery-progress";
+import { assertUserScope, captureUserScope, isUserScopeAbandonedError, type CapturedUserScope } from "@/lib/user-scope-guard";
 import { http, apiBaseURL, type BackendEnvelope, type HttpRequestConfig } from "@/services/api/request";
 import { consumeTaskTextStream, createTaskTextStreamParser, type TaskTextStreamEvent } from "@/services/api/task-text-stream";
 import { recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
+import { publishGenerationDeliveryProgress } from "@/stores/use-generation-delivery-progress";
 
 export type { BackendEnvelope } from "@/services/api/request";
 
@@ -16,6 +18,15 @@ export type GenerationTaskOutput = {
     resourceId?: string;
     materializedAssetId?: string;
     materializationErrorCode?: string;
+};
+
+export type GenerationTaskDeliveryProgress = {
+    outputIndex: number;
+    downloadedBytes: number;
+    /** -1 when the remote size is unknown. */
+    totalBytes: number;
+    bytesPerSecond: number;
+    state: "downloading" | "retrying" | "waiting";
 };
 
 export type GenerationTask = {
@@ -49,6 +60,8 @@ export type GenerationTask = {
     resultJson?: string;
     resultState?: GenerationTaskResultState;
     outputs?: GenerationTaskOutput[];
+    /** Present only while the backend is fetching a result to local storage. */
+    delivery?: { outputs: GenerationTaskDeliveryProgress[] };
     textDraft?: string;
     error?: string;
     attempts: number;
@@ -302,8 +315,8 @@ export function retryGenerationTask(id: string) {
     return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/retry`);
 }
 
-export function cancelGenerationTask(id: string) {
-    return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/cancel`).then((task) => {
+export function cancelGenerationTask(id: string, expectedScope = captureUserScope()) {
+    return http.post<GenerationTask>(`/tasks/${encodeURIComponent(id)}/cancel`, undefined, { expectedScope }).then((task) => {
         window.dispatchEvent(new CustomEvent("canvas:task-cancelled", { detail: { task } }));
         return task;
     });
@@ -391,6 +404,9 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
     let lastTask = options?.initialTask;
     let lastQueryError: unknown;
     let consecutiveFailures = 0;
+    // Only the progress this waiter published is cleared on exit, so a second
+    // waiter for the same task keeps its own view.
+    let publishedDelivery = false;
     try {
         while (Date.now() - startedAt < (options?.timeoutMs || taskWaitTimeoutMs(lastTask))) {
             if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -414,13 +430,24 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
                 await delay(intervalMs, options?.signal);
                 continue;
             }
+            if (task.status === "queued" || task.status === "running") {
+                const progress = task.delivery?.outputs[0];
+                if (progress) {
+                    publishGenerationDeliveryProgress(id, progress);
+                    publishedDelivery = true;
+                } else if (publishedDelivery) {
+                    publishGenerationDeliveryProgress(id, undefined);
+                    publishedDelivery = false;
+                }
+            }
             if (task.status === "succeeded") {
                 return task;
             }
             if (task.status === "failed" || task.status === "cancelled") {
                 throw new Error(task.error ? generationErrorMessage(task.error) : `任务${task.status === "cancelled" ? "已取消" : "失败"}`);
             }
-            await delay(intervalMs, options?.signal);
+            const retrieving = Boolean(task.delivery) || task.stage === GENERATION_RESULT_FETCH_STAGE;
+            await delay(retrieving ? Math.min(intervalMs, 500) : intervalMs, options?.signal);
         }
     } catch (error) {
         if (options?.signal?.aborted) {
@@ -428,6 +455,8 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
             throw new DOMException("Aborted", "AbortError");
         }
         throw error;
+    } finally {
+        if (publishedDelivery) publishGenerationDeliveryProgress(id, undefined);
     }
     throw new Error(lastQueryError instanceof Error ? `任务状态同步失败：${lastQueryError.message}` : "任务执行超时，请稍后重试");
 }

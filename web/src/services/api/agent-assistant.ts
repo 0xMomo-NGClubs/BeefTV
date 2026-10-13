@@ -71,6 +71,8 @@ export type AssistantGenerationProposal = {
 export type AgentTurnEnd = {
     type: "turn_end";
     turnId?: string;
+    /** 宿主本回合实际使用的会话；旧 JSONL 会话首次发消息会交接给新的 Durable 会话，界面据此更新。 */
+    sessionId?: string;
     permissionMode?: AssistantPermissionMode;
     reply: string;
     toolCalls: AgentToolCall[];
@@ -312,6 +314,7 @@ export type AgentLifecycleEvent = {
 };
 
 export type StreamHandlers = {
+    onSession?: (sessionId: string) => void;
     onDelta?: (delta: string) => void;
     onTurnEnd?: (end: AgentTurnEnd) => void;
     onLifecycle?: (event: AgentLifecycleEvent) => void;
@@ -459,6 +462,10 @@ async function readAgentTurnStream(
             payload = JSON.parse(trimmed) as Record<string, unknown>;
         } catch {
             malformedLine = trimmed.slice(0, 200);
+            return;
+        }
+        if (payload.type === "session" && typeof payload.sessionId === "string" && payload.sessionId) {
+            handlers.onSession?.(payload.sessionId);
             return;
         }
         if (payload.type === "text_delta" && typeof payload.delta === "string") {

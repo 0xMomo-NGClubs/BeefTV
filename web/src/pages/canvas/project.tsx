@@ -8,9 +8,9 @@ import type { Dispatch, MouseEvent as ReactMouseEvent, SetStateAction } from "re
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { appHref } from "@/lib/app-routing";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
+import { queryGenerationTask } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { uploadMediaFile } from "@/services/file-storage";
-import { createCanvasGenerationLiveProjectAdapter, registerCanvasGenerationLiveProject } from "@/services/canvas-generation-consumer";
 import { getActiveUserScope, scopedLocalStorage } from "@/lib/user-scope";
 import { assertUserScope, captureUserScope, userScopeMatches, type CapturedUserScope } from "@/lib/user-scope-guard";
 import { findWorkspaceAssetIdByStorageKey } from "@/lib/canvas/director/director-library-persist";
@@ -38,6 +38,7 @@ import { useUserStore } from "@/stores/use-user-store";
 import { App, Button } from "antd";
 import { ArrowLeftRight } from "lucide-react";
 import { AppModal } from "@/components/ui/product/app-modal";
+import { CanvasDeleteConfirmation } from "@/components/canvas/canvas-delete-confirmation";
 import { CanvasConfigComposer } from "@/components/canvas/canvas-config-composer";
 import { CanvasConfigNodePanel } from "@/components/canvas/canvas-config-node-panel";
 import { CanvasActiveTaskPanel } from "@/components/canvas/canvas-active-task-panel";
@@ -364,15 +365,6 @@ function InfiniteCanvasPage() {
     const activeChatIdRef = useRef(activeChatId);
     const selectedNodeIdsRef = useRef(selectedNodeIds);
     const viewportRef = useRef(viewport);
-
-    useEffect(() => {
-        if (!projectId) return;
-        return registerCanvasGenerationLiveProject({
-            scope: canvasStorageScope,
-            projectId,
-            adapter: createCanvasGenerationLiveProjectAdapter({ nodesRef, connectionsRef, chatSessionsRef, activeChatIdRef, setNodes, setConnections, setChatSessions, setActiveChatId }),
-        });
-    }, [canvasStorageScope, projectId]);
 
     const resolvedCanvasAppearance = useMemo(() => resolveCanvasAppearance(canvasAppearance, colorTheme), [canvasAppearance, colorTheme]);
     const applyCanvasAppearance = useCallback(
@@ -703,17 +695,8 @@ function InfiniteCanvasPage() {
         message.success("画布副本已创建");
     }, [canvasProjects, importCanvasProject, message, projectId]);
 
-    const deleteCanvasFromMenu = useCallback((canvasId: string) => {
-        const canvasTitle = canvasProjects.find((canvas) => canvas.id === canvasId)?.title || "该画布";
-        void (async () => {
-            if (canvasId === projectId) {
-                await deleteCurrentProject();
-                return;
-            }
-            await deleteWorkspaceCanvasProjects([canvasId]);
-            message.success(`「${canvasTitle}」已移入回收站`);
-        })().catch((error) => message.error(error instanceof Error ? `删除画布失败：${error.message}` : "删除画布失败"));
-    }, [canvasProjects, deleteCurrentProject, message, modal, projectId]);
+    const [deletingCanvas, setDeletingCanvas] = useState<{ id: string; scope: CapturedUserScope } | null>(null);
+    const deleteCanvasFromMenu = useCallback((id: string) => setDeletingCanvas({ id, scope: captureUserScope() }), []);
 
     const versions = useCanvasVersionHistory(projectId, restoreCanvasProjectVersion, currentProject);
     // 画布右侧只有一个栏位：助手和版本记录互斥，谁被打开另一个就让位。
@@ -1841,6 +1824,32 @@ function InfiniteCanvasPage() {
         updateProject,
     });
 
+    useEffect(() => {
+        const starter = searchParams.get("start");
+        if (!projectLoaded || (starter !== "director" && starter !== "agent")) return;
+
+        let frame = 0;
+        const startWhenCanvasIsLaidOut = () => {
+            const rect = containerRef.current?.getBoundingClientRect();
+            if (!rect || rect.width <= 0 || rect.height <= 0) {
+                frame = requestAnimationFrame(startWhenCanvasIsLaidOut);
+                return;
+            }
+
+            if (starter === "director" && !nodesRef.current.some((node) => node.type === CanvasNodeType.Director)) {
+                createDirectorShot();
+            } else if (starter === "agent") {
+                openAssistant();
+            }
+
+            const next = new URLSearchParams(searchParams);
+            next.delete("start");
+            setSearchParams(next, { replace: true });
+        };
+        frame = requestAnimationFrame(startWhenCanvasIsLaidOut);
+        return () => cancelAnimationFrame(frame);
+    }, [containerRef, createDirectorShot, nodesRef, openAssistant, projectLoaded, searchParams, setSearchParams]);
+
     const {
         activateStep: activateShortDramaStep,
         createPipeline: createShortDramaPipeline,
@@ -2486,6 +2495,14 @@ function InfiniteCanvasPage() {
 
     return (
         <>
+            {deletingCanvas ? <CanvasDeleteConfirmation scope={deletingCanvas.scope} title="删除画布？"
+                description={`将删除「${canvasProjects.find((canvas) => canvas.id === deletingCanvas.id)?.title || "该画布"}」，里面的节点和连线也会一起移除。`}
+                onCancel={() => setDeletingCanvas(null)} onConfirm={async (assertCurrent) => {
+                    if (deletingCanvas.id === projectId) await deleteCurrentProject();
+                    else await deleteWorkspaceCanvasProjects([deletingCanvas.id]);
+                    assertCurrent();
+                    message.success("画布已删除");
+                }} /> : null}
             <a
                 href="#canvas-main"
                 onClick={(event) => {
@@ -2547,7 +2564,7 @@ function InfiniteCanvasPage() {
                                 onRenameCanvas={renameCanvasFromMenu}
                                 onDuplicateCanvas={duplicateCanvasFromMenu}
                                 onDeleteCanvas={deleteCanvasFromMenu}
-                                onDeleteProject={deleteCurrentProject}
+                                onDeleteProject={() => deleteCanvasFromMenu(projectId)}
                                 onSave={() => void saveCanvasProject()}
                                 onForceSave={confirmForceSaveCanvas}
                                 localOnly={localOnly}
@@ -2685,9 +2702,17 @@ function InfiniteCanvasPage() {
                                                 onRetry={retryCanvasNode}
                                                 onReloadResource={reloadCanvasNodeResource}
                                                 onOpenTaskDetails={openCanvasNodeTaskDetails}
-                                                onCancelTask={(node) => {
-                                                    const task = activeTasks.find((item) => item.id === node.metadata?.taskId);
-                                                    if (task) cancelCanvasTask(task);
+                                                onCancelTask={async (node) => {
+                                                    const taskId = node.metadata?.taskId;
+                                                    if (!taskId) return;
+                                                    const scope = captureUserScope();
+                                                    try {
+                                                        const task = activeTasks.find((item) => item.id === taskId) ?? await queryGenerationTask(taskId);
+                                                        assertUserScope(scope);
+                                                        cancelCanvasTask(task);
+                                                    } catch (error) {
+                                                        message.error(error instanceof Error ? error.message : "读取任务失败");
+                                                    }
                                                 }}
                                                 onOpenVersions={openCanvasNodeVersions}
                                                 onViewImage={viewCanvasNodeImage}
