@@ -63,11 +63,13 @@ Wails 和浏览器开发模式共用同一套 `127.0.0.1` HTTP 合同。路由�
 
 带参考图片、视频、音频或蒙版的任务先保存为本地资源，后端通过 owner 归属校验读取字节，再调用 RunningHub `/openapi/v2/media/upload/binary`（multipart `file`、`Authorization: Bearer <apiKey>`）。上传必须返回业务码 `0` 和有效的 `data.fileName`；上传失败不提交工作流。返回的 `fileName` 按字段槽位填入 `nodeInfoList[].fieldValue`，不使用 `download_url` 替代 ComfyUI 加载节点路径。Workflow 提交至 `/task/openapi/create`，App 提交至 `/task/openapi/ai-app/run`；上传、参数查询、提交和轮询共用配置中的 `apiKey`。恢复已有上游任务只查询原任务，不重新上传或创建。上传资源用于任务输入，不作为永久云端资源库。
 
-Workflow 的 `config.optionalImageMode` 为 `disconnect`（默认）或 `retain`，作为图片槽位的默认策略。`disconnect` 只自动删除未提供图片的非必填、已启用映射对应的动态 `reference_images.reference_image_N` 连线，且上游必须直接来自 `LoadImage` 的图片输出（端口 0）。其他图片结构及视频、音频默认保留素材。
+Workflow 的 `config.optionalImageMode` 为 `disconnect`（默认）或 `retain`，作为图片槽位的默认策略。`disconnect` 只自动删除未提供图片的非必填、已启用映射对应的动态 `reference_images.reference_image_N` 连线；来源必须是 `LoadImage.image` 的图片输出（端口 0），可以直接连接，或经过下述已确认的单图片处理链。其他图片结构及视频、音频默认保留素材。
 
-每个素材字段可保存 `emptyInputMode`：`inherit`（默认）、`retain` 或 `disconnect`。`retain` 强制保留该槽位默认素材；`disconnect` 必须通过 `emptyInputTargets[]` 明确指定要断开的直接连接输入，适用于图片、视频和音频，优先于全局图片策略。每个目标包含 `nodeId`、`inputName`、`sourceNodeId`、`sourceOutputIndex`（当前只支持 0）、`sourceClassType`、`targetClassType`。提交前校验节点类型、源标量字段和实际连线身份；重新拉取保留映射，源或目标消失、节点类型或连线改变时标记失效并拒绝新任务，不能悄悄重绑定。目标是否允许省略由用户根据上游节点合同确认，工作流的必需输入错误由上游返回。
+每个素材字段可保存 `emptyInputMode`：`inherit`（默认）、`retain` 或 `disconnect`。`retain` 强制保留该槽位默认素材；`disconnect` 必须通过 `emptyInputTargets[]` 明确指定要断开的最终输入，适用于图片、视频和音频，优先于全局图片策略。每个目标包含 `nodeId`、`inputName`、`sourceNodeId`、`sourceOutputIndex`（当前只支持 0）、`sourceClassType`、`targetClassType`。图片中间链另保存按源到目标顺序排列的 `path[]`，每项为中间节点的 `nodeId`、`inputName`、`classType`，不包含最终目标；没有 `path` 或为空表示直接连接。每条边都使用输出端口 0。提交前校验源标量字段、完整路径的节点类型和实际连线身份；重新拉取保留映射，路径节点消失、节点类型或连线改变时标记失效并拒绝新任务，不能悄悄重绑定。目标是否允许省略由用户根据上游节点合同确认，工作流的必需输入错误由上游返回。
 
-必填项、禁用映射、蒙版不自动断开。仅删除所选目标连线，不删除加载节点、中间节点或其他分支；同一个加载节点存在多个素材字段时拒绝对缺失输入作断开处理，避免误断仍有素材的分支。测试画布与正式画布共用处理计划，显示本次填入、断开和保留默认的槽位。当前不自动穿过缩放、拼接、合并等节点寻找最终可省略输入。
+中间链仅支持已核对官方定义的 `ImageScale`、`ImageScaleBy`、`ImageCrop`、`ImageCropV2`：输入为 `image`，输出为端口 0，起点为图片映射 `LoadImage.image`，最长 64 个中间节点。其他输入中存在两元素连线结构时停止追踪，避免控制参数间接依赖其他素材；循环、`ImageBatch` 合并节点、蒙版输出及未适配节点均不自动穿过。已知处理节点的必需图片入口和 `ImageBatch` 入口不作为可断开目标。未知节点可由用户确认其直接输入是否允许省略，但不会追踪其输出。节点定义依据：[ComfyUI 缩放节点](https://github.com/comfyanonymous/ComfyUI/blob/master/nodes.py)、[ComfyUI 裁剪节点](https://github.com/comfyanonymous/ComfyUI/blob/master/comfy_extras/nodes_images.py)。
+
+必填项、禁用映射、蒙版不自动断开。仅删除所选最终目标连线，不删除加载节点、中间节点或其他分支；同一个加载节点存在多个素材字段时拒绝对缺失输入作断开处理，避免误断仍有素材的分支。经过共享处理节点的其他输出和合并分支保留默认。测试画布与正式画布共用处理计划，显示本次填入、断开和保留默认的槽位、完整路径及停止自动追踪的原因。视频、音频的中间处理链不在当前规则内。
 
 发生删除时以独立副本的完整 JSON 字符串设置请求体 `workflow`，由官方高级创建接口覆盖模板拓扑；`nodeInfoList` 继续覆盖本次上传路径、提示词及其他字段。缺少完整 JSON 时先读取工作流，需处理空槽位而读取失败则中止，不能静默使用默认素材。App 继续只提交公开参数；普通模型、刷新和恢复不执行图转换，也不创建新任务。
 

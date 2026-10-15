@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WorkflowEmptyInputEditor } from "@/components/workflow-empty-input-editor";
 import { WorkflowInputPlan } from "@/components/workflow-input-plan";
-import { workflowDirectInputTargets, workflowMediaInputPlan, workflowMediaInputPolicy, workflowRecommendedInputTargets } from "@/lib/workflow-image-inputs";
+import { workflowInputTargetOptions, workflowMediaInputPlan, workflowMediaInputPolicy, workflowRecommendedInputTargets } from "@/lib/workflow-image-inputs";
 import { mergeWorkflowFieldMappings, normalizeConfigSnapshot, normalizeWorkflowFieldMappings, defaultConfig, type RunningHubWorkflow } from "@/stores/use-config-store";
 import { prepareBackendGenerationTask } from "@/services/api/generation-task";
 import { usePluginStore } from "@/stores/use-plugin-store";
@@ -25,7 +25,7 @@ function fixture(kind = "image"): RunningHubWorkflow {
 function explicit(workflow = fixture()) {
     const field = workflow.fields![0];
     field.emptyInputMode = "disconnect";
-    field.emptyInputTargets = workflowDirectInputTargets(workflow.workflowJson, field).filter((target) => target.nodeId === "2");
+    field.emptyInputTargets = workflowInputTargetOptions(workflow.workflowJson, field).targets.filter((target) => target.nodeId === "2");
     return workflow;
 }
 

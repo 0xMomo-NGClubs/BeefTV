@@ -398,7 +398,7 @@ export function RunningHubSettingsPane() {
                         { label: "断开动态参考槽位（推荐）", value: "disconnect" },
                         { label: "保留工作流默认图片", value: "retain" },
                     ]} onChange={(value) => selected && persistWorkflow({ ...selected, optionalImageMode: value as "disconnect" | "retain" })} />
-                    <p className="mt-2 text-xs text-muted-foreground">这是图片槽位的默认策略，仅自动识别 LoadImage 直接连接的动态 reference_images 端口。可在每个素材字段中单独选择保留默认素材或断开指定输入；视频、音频默认保留。关闭映射及必填槽位不自动断开，云端模板不会被改写。</p>
+                    <p className="mt-2 text-xs text-muted-foreground">这是图片槽位的默认策略，识别 LoadImage 直接或经标准缩放、裁剪链连接的动态 reference_images 端口。可在每个素材字段中选择保留默认素材或断开指定最终输入；合并和未适配节点不自动穿过，视频、音频默认保留。关闭映射及必填槽位不自动断开，云端模板不会被改写。</p>
                 </Form.Item> : null}
                 {workspaceMode === "fields" && capability === "video" ? <div className="lg:col-span-12"><WorkflowVideoControlsEditor fields={selected?.fields || []} value={selected?.videoControls} disabled={!selected || !draftMatchesSelected} onChange={(videoControls) => selected && persistWorkflow({ ...selected, videoControls })} /></div> : null}
                 {workspaceMode === "fields" && capability === "text" ? <Form.Item label="主文字输出节点" className="mb-0 lg:col-span-12">

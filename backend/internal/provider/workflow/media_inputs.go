@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -122,22 +123,94 @@ func workflowWithProvidedMedia(graph map[string]interface{}, fields []Field, cou
 }
 
 func workflowInputTargetValid(graph map[string]interface{}, field Field, target InputTarget) bool {
+	for _, candidate := range workflowInputTargets(graph, field) {
+		if candidate.NodeID == target.NodeID && candidate.InputName == target.InputName &&
+			candidate.SourceNodeID == target.SourceNodeID && candidate.SourceOutputIndex == target.SourceOutputIndex &&
+			candidate.SourceClassType == target.SourceClassType && candidate.TargetClassType == target.TargetClassType && slices.Equal(candidate.Path, target.Path) {
+			return true
+		}
+	}
+	return false
+}
+
+// These core nodes have one IMAGE input and one IMAGE output (port 0).
+// Keep this list aligned with workflow-image-inputs.ts and the shared fixture.
+func workflowSingleImageTransform(classType string) bool {
+	switch classType {
+	case "ImageScale", "ImageScaleBy", "ImageCrop", "ImageCropV2":
+		return true
+	}
+	return false
+}
+
+func workflowInputTargets(graph map[string]interface{}, field Field) []InputTarget {
 	source, _ := graph[field.NodeID].(map[string]interface{})
 	sourceInputs, _ := source["inputs"].(map[string]interface{})
 	value, exists := sourceInputs[field.FieldName]
-	scalar := false
 	switch value.(type) {
 	case string, float64, int, bool, json.Number:
-		scalar = true
+	default:
+		return nil
 	}
-	node, _ := graph[target.NodeID].(map[string]interface{})
-	inputs, _ := node["inputs"].(map[string]interface{})
-	link := inputs[target.InputName]
-	return exists && scalar &&
-		target.SourceNodeID == field.NodeID && target.SourceOutputIndex == 0 &&
-		target.SourceClassType != "" && stringValue(source["class_type"]) == target.SourceClassType &&
-		target.TargetClassType != "" && stringValue(node["class_type"]) == target.TargetClassType &&
-		isWorkflowLinkValue(link) && stringValue(link.([]interface{})[0]) == field.NodeID && workflowScalarString(link.([]interface{})[1]) == "0"
+	sourceClass := stringValue(source["class_type"])
+	if !exists || sourceClass == "" {
+		return nil
+	}
+	type edge struct{ nodeID, inputName, classType string }
+	outgoing := map[string][]edge{}
+	for id, raw := range graph {
+		node, _ := raw.(map[string]interface{})
+		classType := stringValue(node["class_type"])
+		if classType == "" {
+			continue
+		}
+		inputs, _ := node["inputs"].(map[string]interface{})
+		for name, value := range inputs {
+			if isWorkflowLinkValue(value) && workflowScalarString(value.([]interface{})[1]) == "0" {
+				sourceID := stringValue(value.([]interface{})[0])
+				outgoing[sourceID] = append(outgoing[sourceID], edge{nodeID: id, inputName: name, classType: classType})
+			}
+		}
+	}
+	var result []InputTarget
+	visited := map[string]bool{field.NodeID: true}
+	var follow func(string, []InputPathStep)
+	follow = func(sourceID string, path []InputPathStep) {
+		for _, edge := range outgoing[sourceID] {
+			if visited[edge.nodeID] {
+				continue
+			}
+			if workflowSingleImageTransform(edge.classType) {
+				if len(path) >= 64 || sourceClass != "LoadImage" || field.FieldName != "image" || workflowMediaKind(field) != "image" || edge.inputName != "image" {
+					continue
+				}
+				node, _ := graph[edge.nodeID].(map[string]interface{})
+				inputs, _ := node["inputs"].(map[string]interface{})
+				linkedControl := false
+				for name, value := range inputs {
+					if link, ok := value.([]interface{}); name != "image" && ok && len(link) == 2 {
+						linkedControl = true
+					}
+				}
+				if linkedControl {
+					continue
+				}
+				visited[edge.nodeID] = true
+				follow(edge.nodeID, append(append([]InputPathStep(nil), path...), InputPathStep{NodeID: edge.nodeID, InputName: edge.inputName, ClassType: edge.classType}))
+				delete(visited, edge.nodeID)
+				continue
+			}
+			if edge.classType == "ImageBatch" {
+				continue
+			}
+			result = append(result, InputTarget{NodeID: edge.nodeID, InputName: edge.inputName, SourceNodeID: field.NodeID, SourceOutputIndex: 0, SourceClassType: sourceClass, TargetClassType: edge.classType, Path: append([]InputPathStep(nil), path...)})
+		}
+	}
+	follow(field.NodeID, nil)
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].NodeID+"\x00"+result[i].InputName < result[j].NodeID+"\x00"+result[j].InputName
+	})
+	return result
 }
 
 func workflowRecommendedImageTargets(graph map[string]interface{}, field Field) []InputTarget {
@@ -146,18 +219,10 @@ func workflowRecommendedImageTargets(graph map[string]interface{}, field Field) 
 		return nil
 	}
 	var result []InputTarget
-	for id, raw := range graph {
-		node, _ := raw.(map[string]interface{})
-		inputs, _ := node["inputs"].(map[string]interface{})
-		for name := range inputs {
-			target := InputTarget{NodeID: id, InputName: name, SourceNodeID: field.NodeID, SourceOutputIndex: 0, SourceClassType: "LoadImage", TargetClassType: stringValue(node["class_type"])}
-			if dynamicReferenceImageInput.MatchString(name) && workflowInputTargetValid(graph, field, target) {
-				result = append(result, target)
-			}
+	for _, target := range workflowInputTargets(graph, field) {
+		if dynamicReferenceImageInput.MatchString(target.InputName) {
+			result = append(result, target)
 		}
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].NodeID+"\x00"+result[i].InputName < result[j].NodeID+"\x00"+result[j].InputName
-	})
 	return result
 }

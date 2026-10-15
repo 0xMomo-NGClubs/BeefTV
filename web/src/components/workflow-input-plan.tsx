@@ -21,6 +21,7 @@ export function WorkflowInputPlan({ workflow, counts, fields, kind, providedLabe
                 <p>{item.kind === "image" ? "图片" : item.kind === "video" ? "视频" : "音频"} {item.slotIndex + 1} · {item.field.nodeId}.{item.field.fieldName} → {item.action === "provided" && providedLabels?.[workflowFieldKey(item.field)] || workflowEmptyMediaLabel(item)}</p>
                 {item.targets.length ? <p className="mt-1 opacity-70">{item.targets.map((target) => workflowInputTargetLabel(target, workflow?.workflowJson)).join("；")}</p> : null}
                 {item.error ? <p role="alert" className="mt-1 text-destructive">请返回工作流字段配置修正后再生成。</p> : null}
+                {item.notice ? <p className="mt-1 opacity-70">{item.notice}</p> : null}
             </div>)}
         </div>
     </details>;

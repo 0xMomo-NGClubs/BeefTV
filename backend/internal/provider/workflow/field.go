@@ -42,15 +42,22 @@ type Field struct {
 	sourceConfigured bool
 }
 
-// InputTarget pins a direct edge and both node types so a refreshed graph cannot
-// silently redirect an empty-slot policy to a different input.
+// InputTarget pins the loader, intermediate path and final edge so a refreshed
+// graph cannot silently redirect an empty-slot policy to a different input.
 type InputTarget struct {
-	NodeID            string `json:"nodeId"`
-	InputName         string `json:"inputName"`
-	SourceNodeID      string `json:"sourceNodeId"`
-	SourceOutputIndex int    `json:"sourceOutputIndex"`
-	SourceClassType   string `json:"sourceClassType"`
-	TargetClassType   string `json:"targetClassType"`
+	NodeID            string          `json:"nodeId"`
+	InputName         string          `json:"inputName"`
+	SourceNodeID      string          `json:"sourceNodeId"`
+	SourceOutputIndex int             `json:"sourceOutputIndex"`
+	SourceClassType   string          `json:"sourceClassType"`
+	TargetClassType   string          `json:"targetClassType"`
+	Path              []InputPathStep `json:"path,omitempty"`
+}
+
+type InputPathStep struct {
+	NodeID    string `json:"nodeId"`
+	InputName string `json:"inputName"`
+	ClassType string `json:"classType"`
 }
 
 func (f Field) SourceConfigured() bool { return f.sourceConfigured }

@@ -25,6 +25,7 @@ export type WorkflowInputTarget = {
     sourceOutputIndex: number;
     sourceClassType: string;
     targetClassType: string;
+    path?: Array<{ nodeId: string; inputName: string; classType: string }>;
 };
 
 export type WorkflowFieldMapping = {
@@ -223,6 +224,10 @@ export function normalizeWorkflowFieldMappings(value: unknown, capability?: Runn
                 nodeId: String(target.nodeId ?? ""), inputName: String(target.inputName ?? ""),
                 sourceNodeId: String(target.sourceNodeId ?? ""), sourceClassType: String(target.sourceClassType ?? ""), targetClassType: String(target.targetClassType ?? ""),
                 sourceOutputIndex: typeof target.sourceOutputIndex === "number" && Number.isInteger(target.sourceOutputIndex) ? target.sourceOutputIndex : -1,
+                ...(target.path !== undefined ? { path: (Array.isArray(target.path) ? target.path : [null]).map((value) => {
+                    const step = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+                    return { nodeId: String(step.nodeId ?? ""), inputName: String(step.inputName ?? ""), classType: String(step.classType ?? "") };
+                }) } : {}),
             };
         }) : [];
         const candidate: WorkflowFieldMapping = {

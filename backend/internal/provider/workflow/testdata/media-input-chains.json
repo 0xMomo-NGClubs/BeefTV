@@ -1,0 +1,37 @@
+{
+  "graph": {
+    "1": { "class_type": "LoadImage", "inputs": { "image": "optional.png" } },
+    "2": { "class_type": "LoadImage", "inputs": { "image": "provided.png" } },
+    "10": { "class_type": "ImageScale", "inputs": { "image": ["1", 0], "upscale_method": "bilinear", "width": 512, "height": 512, "crop": "disabled" } },
+    "11": { "class_type": "ImageCrop", "inputs": { "image": ["10", 0], "width": 256, "height": 256, "x": 0, "y": 0 } },
+    "12": { "class_type": "ImageScaleBy", "inputs": { "image": ["1", 0], "upscale_method": "bilinear", "scale_by": 0.5 } },
+    "13": { "class_type": "ImageCropV2", "inputs": { "image": ["12", 0], "crop_region": { "width": 256, "height": 256, "x": 0, "y": 0 } } },
+    "20": { "class_type": "MiniMaxH3PromptEnhancerT8", "inputs": {
+      "reference_images.reference_image_0": ["11", 0],
+      "reference_images.reference_image_1": ["13", 0],
+      "reference_images.reference_image_2": ["2", 0],
+      "reference_images.reference_image_3": ["30", 0],
+      "reference_images.reference_image_4": ["31", 0],
+      "reference_images.reference_image_5": ["40", 0],
+      "reference_images.reference_image_6": ["50", 0],
+      "prompt": "fixed prompt"
+    } },
+    "21": { "class_type": "SaveImage", "inputs": { "images": ["11", 0] } },
+    "30": { "class_type": "ImageBatch", "inputs": { "image1": ["11", 0], "image2": ["2", 0] } },
+    "31": { "class_type": "CustomResize", "inputs": { "image": ["1", 0] } },
+    "40": { "class_type": "ImageScale", "inputs": { "image": ["1", 0], "upscale_method": "bilinear", "width": ["41", 0], "height": 512, "crop": "disabled" } },
+    "41": { "class_type": "ImageSize", "inputs": { "image": ["2", 0] } },
+    "50": { "class_type": "ImageScale", "inputs": { "image": ["1", 1], "upscale_method": "bilinear", "width": 512, "height": 512, "crop": "disabled" } }
+  },
+  "field": { "nodeId": "1", "fieldName": "image", "source": "referenceImage", "sourceIndex": 1, "imageOrder": 2, "enabled": true, "required": false },
+  "targets": [
+    { "nodeId": "20", "inputName": "reference_images.reference_image_0", "sourceNodeId": "1", "sourceOutputIndex": 0, "sourceClassType": "LoadImage", "targetClassType": "MiniMaxH3PromptEnhancerT8", "path": [
+      { "nodeId": "10", "inputName": "image", "classType": "ImageScale" },
+      { "nodeId": "11", "inputName": "image", "classType": "ImageCrop" }
+    ] },
+    { "nodeId": "20", "inputName": "reference_images.reference_image_1", "sourceNodeId": "1", "sourceOutputIndex": 0, "sourceClassType": "LoadImage", "targetClassType": "MiniMaxH3PromptEnhancerT8", "path": [
+      { "nodeId": "12", "inputName": "image", "classType": "ImageScaleBy" },
+      { "nodeId": "13", "inputName": "image", "classType": "ImageCropV2" }
+    ] }
+  ]
+}

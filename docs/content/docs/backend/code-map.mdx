@@ -20,7 +20,7 @@ RunningHub 设置由 `web/src/pages/settings/runninghub-settings-pane.tsx` 管�
 
 `workflow-prompt-mapping.ts` 与 `workflow-prompt-mapping-editor.tsx` 共用现有字段的 `source = "prompt"`，为设置页提供目标选择与开关，为测试画布和正式参数面板提供接收位置。`canvas-project-generation.ts` 防止节点旧参数值清除提示词绑定；`provider/workflow/client.go` 只在没有字段策略时推断提示词目标，显式取消或关闭映射不会触发替代绑定。
 
-`provider/workflow/media_inputs.go` 按本次图片、视频及音频数量处理字段级 `emptyInputMode` 和固定身份的 `emptyInputTargets`；`optionalImageMode` 仍提供已知动态图片端口的默认策略。提交前校验直接连线与节点类型，只在副本中删除所选边，保留加载节点及其他分支。仅拓扑发生变化时由 `client.go` 提交官方完整 `workflow` 字符串，提示词、上传路径与参数继续使用既有节点映射。`workflow-image-inputs.ts` 生成统一处理计划，`workflow-input-plan.tsx` 在测试画布和正式参数弹层共用；`workflow-empty-input-editor.tsx` 在字段配置中提供策略和目标选择。重新拉取保留明确配置及已失效的源字段，以便用户重新确认。App 和普通模型不进入拓扑转换，恢复原任务也不经过创建路径。
+`provider/workflow/media_inputs.go` 按本次图片、视频及音频数量处理字段级 `emptyInputMode` 和固定身份的 `emptyInputTargets`；`optionalImageMode` 仍提供已知动态图片端口的默认策略。`path` 固定标准图片缩放、裁剪链的中间节点和端口身份；提交前校验完整路径，只在副本中删除所选最终边，保留加载节点、中间节点及其他分支。合并节点和额外连线依赖不自动穿过。仅拓扑发生变化时由 `client.go` 提交官方完整 `workflow` 字符串，提示词、上传路径与参数继续使用既有节点映射。`workflow-image-inputs.ts` 使用相同规则生成统一处理计划，前后端共用 `provider/workflow/testdata/media-input-chains.json` 回归样本；`workflow-input-plan.tsx` 在测试画布和正式参数弹层共用，`workflow-empty-input-editor.tsx` 提供策略、路径选择和保留原因。重新拉取保留明确配置及已失效的源字段，以便用户重新确认。App 和普通模型不进入拓扑转换，恢复原任务也不经过创建路径。
 
 `workflow-test-task.ts` 按账号及工作流身份保存最近测试任务 ID，读取持久任务用于页面恢复。`canvas-generation-task-refresh.tsx` 通过画布动作调用既有结果消费链路；测试页和任务详情复用 `query-provider`。`app/provider_task_recovery.go` 校验用户、原任务 ID 和协议，使用恢复租约并调用 `provider/workflow.Client.QueryTask` 单次查询和读取产物；正在执行的任务不重复查询。后台 `Poll` 与手动 `QueryTask` 共用状态及多输出解析，各用途均通过既有轮询端口处理临时断线。
 
