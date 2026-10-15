@@ -1,6 +1,6 @@
 import { App, Button } from "antd";
-import { ArrowLeft, Bug, RadioTower, Workflow } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import { ArrowLeft } from "lucide-react";
+import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -16,18 +16,17 @@ import { flushModelConfig, getModelConfigPersistenceState } from "@/services/mod
 import { StorageSettingsPane } from "./storage-settings-pane";
 import { ReferenceStoragePane } from "./reference-storage-pane";
 import { getDesktopAppBinding } from "@/services/desktop-runtime";
+import { PageHeader } from "@/components/layout/workspace-page";
 
 type ConfigSectionKey = "channels" | "models" | "storage" | "diagnostics" | "runninghub";
 
-const configSections: Array<{ key: ConfigSectionKey; label: string; description: string; icon: ReactNode }> = [
-    { key: "channels", label: "个人渠道", description: "模型服务与个人工作流", icon: <RadioTower className="size-4" /> },
-    { key: "runninghub", label: "RunningHub", description: "云端工作流与 App", icon: <Workflow className="size-4" /> },
-    { key: "storage", label: "存储设置", description: "本地目录和参考素材存储", icon: null },
-    { key: "diagnostics", label: "问题诊断", description: "导出问题记录", icon: <Bug className="size-4" /> },
-];
-
 export function isConfigSection(value: string | null): value is ConfigSectionKey {
-    return configSections.some((section) => section.key === value);
+    return value === "channels" || value === "storage" || value === "diagnostics" || value === "runninghub";
+}
+
+export function resolveSettingsSection(value: string | null, nativeStorage: boolean, customChannelsEnabled: boolean): ConfigSectionKey {
+    if (!isConfigSection(value) || value === "storage" && !nativeStorage || value === "runninghub" && !customChannelsEnabled) return "channels";
+    return value;
 }
 
 export default function SettingsPage() {
@@ -36,8 +35,8 @@ export default function SettingsPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const requestedSection = searchParams.get("section");
     const customChannelsEnabled = useUserStore((state) => state.features.customChannelsEnabled);
-    const initialSection = isConfigSection(requestedSection) ? requestedSection : "channels";
-    const [activeTab, setActiveTab] = useState<ConfigSectionKey>(initialSection === "models" ? "channels" : initialSection);
+    const nativeStorage = Boolean(getDesktopAppBinding()?.StorageSettings);
+    const [activeTab, setActiveTab] = useState<ConfigSectionKey>(() => resolveSettingsSection(requestedSection, nativeStorage, customChannelsEnabled));
     const config = useConfigStore((state) => state.config);
     const runtimeStatuses = usePluginStore((state) => state.runtimeStatuses);
     const [saving, setSaving] = useState(false);
@@ -45,23 +44,14 @@ export default function SettingsPage() {
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const shouldPromptContinue = searchParams.get("continue") === "1";
     const userChannels = config.channels.filter((channel) => channel.scope !== "system");
-    const nativeStorage = Boolean(getDesktopAppBinding()?.StorageSettings);
-    const visibleConfigSections = useMemo(() => configSections.filter(section => ((section.key !== "channels" && section.key !== "runninghub") || customChannelsEnabled) && (section.key !== "storage" || nativeStorage)), [customChannelsEnabled, nativeStorage]);
-
-    const isVisibleConfigSection = (value: string | null): value is ConfigSectionKey => isConfigSection(value) && visibleConfigSections.some((section) => section.key === value);
-
     useLayoutEffect(() => {
         document.body.classList.add("app-user-overlays");
         return () => document.body.classList.remove("app-user-overlays");
     }, []);
 
     useEffect(() => {
-        if (isVisibleConfigSection(requestedSection)) {
-            setActiveTab(requestedSection);
-            return;
-        }
-        setActiveTab((current) => visibleConfigSections.some((section) => section.key === current) ? current : "channels");
-    }, [customChannelsEnabled, requestedSection, visibleConfigSections]);
+        setActiveTab(resolveSettingsSection(requestedSection, nativeStorage, customChannelsEnabled));
+    }, [requestedSection, nativeStorage, customChannelsEnabled]);
 
     const selectSection = (section: ConfigSectionKey) => {
         setActiveTab(section);
@@ -112,7 +102,15 @@ export default function SettingsPage() {
                 </div>
             </SettingsPane>
         ),
-        storage: <SettingsPane><StorageSettingsPane /><ReferenceStoragePane /></SettingsPane>,
+        storage: (
+            <SettingsPane>
+                <PageHeader title="存储设置" />
+                <div className="storage-settings-sections">
+                    <StorageSettingsPane />
+                    <ReferenceStoragePane />
+                </div>
+            </SettingsPane>
+        ),
         models: (
             <SettingsPane>
                 <div className="settings-pane-header">
@@ -130,7 +128,6 @@ export default function SettingsPage() {
 
     return (
         <main className="settings-page app-workspace-page app-user-workspace app-section-page flex h-full min-h-0 flex-col text-foreground">
-            {nativeStorage ? <nav aria-label="设置栏目" className="flex shrink-0 flex-wrap gap-2 px-4 py-3">{visibleConfigSections.map(section=><Button key={section.key} aria-pressed={activeTab===section.key} onClick={()=>selectSection(section.key)}>{section.label}</Button>)}</nav> : null}
                 {shouldPromptContinue || activeTab === "runninghub" ? <div className="settings-topbar shrink-0">
                     <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                         {activeTab === "runninghub" ? (

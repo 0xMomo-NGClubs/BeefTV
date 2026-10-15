@@ -24,7 +24,7 @@ function statusLine(state: DesktopUpdateState, persistBusy: boolean, latest: str
     if (persistBusy) return { title: "正在保存工作区", detail: "保存完成后开始安装", percent: null, tone: "active" };
     switch (state.status) {
         case "downloading":
-            return { title: latest ? `正在下载 ${latest}` : "正在下载更新", detail: desktopUpdateDetailLabel(state), percent: state.downloadedBytes > 0 ? percent : null, tone: "active" };
+            return { title: state.totalBytes > 0 && state.downloadedBytes >= state.totalBytes ? "正在校验更新包" : latest ? `正在下载 ${latest}` : "正在下载更新", detail: desktopUpdateDetailLabel(state), percent: state.downloadedBytes > 0 ? percent : null, tone: "active" };
         case "installing":
             return { title: latest ? `正在安装 ${latest}` : "正在安装更新", detail: "完成后应用会自动重启", percent: null, tone: "active" };
         case "error":
@@ -53,7 +53,7 @@ export function WorkspaceSidebarUpdate({ collapsed }: { collapsed: boolean }) {
     const line = showControls ? statusLine(state, persistBusy, latest, percent) : null;
     const amount = state.totalBytes > 0 ? desktopUpdateProgressLabel(state) : "";
     const tooltip = line ? [line.title, amount, line.detail].filter(Boolean).join("\n") : updateLabel;
-    const showBar = state.status === "downloading" || (line?.tone === "paused" && line.percent !== null);
+    const showBar = ["downloading", "ready", "installing"].includes(state.status) || persistBusy || (line?.tone === "paused" && line.percent !== null);
     const handleUpdate = () => {
         if (state.status === "error") return showControls ? updater.downloadAndInstall() : updater.retry();
         return showControls ? updater.downloadAndInstall() : updater.check();
@@ -78,7 +78,7 @@ function UpdateProgressBar({ state, percent, reducedMotion, paused }: { state: D
         <span
             className={cn("app-workspace-update-progress-bar", paused && "is-paused")}
             role="progressbar"
-            aria-label="更新下载进度"
+            aria-label="更新准备进度"
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={percent ?? undefined}
