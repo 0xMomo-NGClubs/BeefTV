@@ -26,6 +26,7 @@ type WorkflowGraphEditorProps = {
     onChange: (fields: WorkflowFieldMapping[]) => void;
     disabled?: boolean;
     emptyDescription?: string;
+    optionalImageMode?: "disconnect" | "retain";
 };
 
 const nodeWidth = 156;
@@ -35,7 +36,7 @@ const rowGap = 20;
 const graphPadding = 24;
 const allEnabledFieldsNodeId = "__all_enabled_fields__";
 
-export function WorkflowGraphEditor({ workflowJson, workflowGraph, fields, onChange, disabled = false, emptyDescription = "尚未读取到工作流拓扑" }: WorkflowGraphEditorProps) {
+export function WorkflowGraphEditor({ workflowJson, workflowGraph, fields, onChange, disabled = false, emptyDescription = "尚未读取到工作流拓扑", optionalImageMode }: WorkflowGraphEditorProps) {
     const graph = useMemo(() => buildWorkflowGraph(workflowJson, workflowGraph), [workflowGraph, workflowJson]);
     const [selectedNodeId, setSelectedNodeId] = useState("");
     const [scale, setScale] = useState(1);
@@ -175,7 +176,7 @@ export function WorkflowGraphEditor({ workflowJson, workflowGraph, fields, onCha
                     <strong>{selectedNodeId === allEnabledFieldsNodeId ? "全部已开启字段" : selectedNode?.title || "工作流字段"}</strong>
                     <span>{selectedNodeId === allEnabledFieldsNodeId ? `${enabledFields.length} 个字段` : selectedNode ? `${selectedNode.classType} · #${selectedNode.id}` : "选择右侧节点进行设置"}</span>
                 </div>
-                <WorkflowFieldMappingEditor fields={selectedFields} disabled={disabled} onChange={updateSelectedFields} />
+                <WorkflowFieldMappingEditor fields={selectedFields} workflowJson={workflowJson} optionalImageMode={optionalImageMode} disabled={disabled} onChange={updateSelectedFields} />
             </aside>
 
             <section className="workflow-graph-stage">

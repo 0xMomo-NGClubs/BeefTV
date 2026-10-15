@@ -2,10 +2,10 @@ import { Button, Popover } from "antd";
 import { Settings2, SlidersHorizontal } from "lucide-react";
 import { WorkflowParameterControls } from "./canvas-config-node-panel";
 import { workflowFieldKey, workflowFieldRole, workflowParameterFields, workflowVideoFieldsFromJson } from "@/lib/model-capabilities";
-import { workflowMediaSlotIndex, workflowSlotReference } from "@/lib/canvas/canvas-workflow-inputs";
+import { workflowSlotReference } from "@/lib/canvas/canvas-workflow-inputs";
 import { workflowVideoControlFields, workflowVideoControlSummary } from "@/lib/workflow-video-controls";
 import { workflowPromptTargetLabel } from "@/lib/workflow-prompt-mapping";
-import { disconnectedWorkflowImageFields, workflowEmptyImageLabel } from "@/lib/workflow-image-inputs";
+import { WorkflowInputPlan } from "@/components/workflow-input-plan";
 import { type AiConfig } from "@/stores/use-config-store";
 import { CanvasNodeType, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 import type { CanvasTheme } from "@/lib/canvas-theme";
@@ -25,7 +25,8 @@ export function CanvasWorkflowControls({ node, config, theme, references, onConf
     const media = (selected?.fields || []).filter((field) => field.enabled !== false && ["referenceImage", "referenceVideo", "referenceAudio", "mask"].includes(field.source || ""));
     const summary = workflowVideoControlSummary(fields, selected?.videoControls, node.metadata?.workflowParameters || {});
     const promptTarget = workflowPromptTargetLabel(fields);
-    const disconnectedImages = disconnectedWorkflowImageFields(selected, fields);
+    const mediaCounts = { image: references.filter((item) => item.kind === "image" || item.kind === "character").length, video: references.filter((item) => item.kind === "video").length, audio: references.filter((item) => item.kind === "audio").length };
+    const providedLabels = Object.fromEntries(media.map((field) => [workflowFieldKey(field), workflowSlotReference(field, references)?.title || ""]));
     const surface = { background: theme.node.panel, color: theme.node.text };
     return <div className="flex min-w-0 items-center gap-1" data-canvas-no-zoom onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
         {controls.length ? <Popover trigger="click" placement="topRight" content={<div className="max-h-80 w-80 overflow-y-auto" style={surface} data-canvas-no-zoom data-canvas-wheel-scroll><WorkflowParameterControls fields={controls} node={node} theme={theme} onConfigChange={onConfigChange} /></div>}>
@@ -36,12 +37,7 @@ export function CanvasWorkflowControls({ node, config, theme, references, onConf
             <p className="break-words" style={{ color: theme.node.muted }}>提示词 → {promptTarget || "未映射，保留工作流字段值"}</p>
             {common.length ? <WorkflowParameterControls fields={common} node={node} theme={theme} onConfigChange={onConfigChange} /> : null}
             {advanced.length ? <WorkflowParameterControls fields={advanced} node={node} theme={theme} onConfigChange={onConfigChange} defaultExpanded={false} /> : null}
-            {media.length ? <details className="rounded-lg p-2" style={{ background: theme.node.fill }}><summary className="cursor-pointer">素材槽位 · {media.filter((field) => workflowSlotReference(field, references)).length}/{media.length}</summary><div className="mt-2 space-y-2">
-                {media.map((field) => {
-                    const reference = workflowSlotReference(field, references);
-                    return <div key={workflowFieldKey(field)} className="flex justify-between gap-2" style={{ color: reference || !field.required ? theme.node.muted : theme.accent.danger }}><span>{field.label || field.fieldName} · 槽位 {workflowMediaSlotIndex(field) + 1}{field.required ? "（必填）" : ""}</span><span className="max-w-36 truncate" title={reference?.title}>{reference?.title || (field.source === "mask" ? "需要蒙版输入" : field.required ? "待连接素材" : workflowEmptyImageLabel(field, disconnectedImages))}</span></div>;
-                })}
-            </div></details> : null}
+            {media.length ? <div className="rounded-lg p-2" style={{ background: theme.node.fill }}><WorkflowInputPlan workflow={selected} fields={selected?.fields} counts={mediaCounts} providedLabels={providedLabels} />{media.some((field) => field.source === "mask") ? <p className="mt-2">蒙版：需要单独配置输入</p> : null}</div> : null}
             {!remaining.length && !media.length ? <p style={{ color: theme.node.muted }}>没有额外参数</p> : null}
         </div>}><Button size="small" type="text" icon={<SlidersHorizontal className="size-3" />} style={{ color: theme.node.muted }} aria-label="工作流参数">参数</Button></Popover>
     </div>;

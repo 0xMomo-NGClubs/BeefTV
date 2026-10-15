@@ -1,6 +1,7 @@
 import { normalizeRunningHubCapability, type AiConfig, type RunningHubConfig, type RunningHubCapability, type RunningHubWorkflowKind, type WorkflowFieldMapping } from "@/stores/use-config-store";
 import { workflowProviderPluginEnabled } from "@/lib/plugins/builtin/workflows";
 import { usePluginStore } from "@/stores/use-plugin-store";
+import { workflowMediaInputPolicy } from "@/lib/workflow-image-inputs";
 
 export type GenerationWorkflowMode = "text" | "image" | "video" | "audio";
 
@@ -42,6 +43,10 @@ export function resolveGenerationWorkflowExecution(config: AiConfig, mode: Gener
         }
         const workflow = runningHub.workflows.find((item) => item.workflowId.trim() === workflowId && (item.kind === "app" ? "app" : "workflow") === kind);
         if (!workflow) throw new Error("当前 RunningHub 工作流条目不存在，请重新选择已保存条目");
+        for (const field of workflow.fields || []) {
+            const policy = workflowMediaInputPolicy(workflow, field);
+            if (policy.error) throw new Error(`工作流字段 ${field.nodeId}.${field.fieldName}：${policy.error}`);
+        }
         const capability = normalizeRunningHubCapability(workflow.capability, normalizeRunningHubCapability(runningHub.capability));
         assertWorkflowCapability("RunningHub", capability, mode);
         const webappId = kind === "app" ? (workflow.webappId || workflow.workflowId).trim() : "";

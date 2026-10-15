@@ -18,6 +18,15 @@ export type ChannelHeader = { name: string; value: string };
 export type RunningHubCapability = "text" | "image" | "video" | "audio";
 export type RunningHubWorkflowKind = "workflow" | "app";
 
+export type WorkflowInputTarget = {
+    nodeId: string;
+    inputName: string;
+    sourceNodeId: string;
+    sourceOutputIndex: number;
+    sourceClassType: string;
+    targetClassType: string;
+};
+
 export type WorkflowFieldMapping = {
     id?: string;
     nodeId: string;
@@ -45,6 +54,8 @@ export type WorkflowFieldMapping = {
     bindPrompt?: boolean;
     sourceFromUpstream?: boolean;
     sourceAutomatic?: boolean;
+    emptyInputMode?: "inherit" | "retain" | "disconnect";
+    emptyInputTargets?: WorkflowInputTarget[];
 };
 
 export function normalizeRunningHubCapability(value: unknown, fallback: RunningHubCapability = "image"): RunningHubCapability {
@@ -206,6 +217,14 @@ export function normalizeWorkflowFieldMappings(value: unknown, capability?: Runn
         const randomEnabled = raw.randomEnabled ?? raw.random_enabled;
         const sourceIndex = Number(raw.sourceIndex ?? raw.source_index ?? raw.index);
         const imageOrder = Number(raw.imageOrder ?? raw.image_order);
+        const emptyInputTargets = Array.isArray(raw.emptyInputTargets) ? raw.emptyInputTargets.map((value): WorkflowInputTarget => {
+            const target = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+            return {
+                nodeId: String(target.nodeId ?? ""), inputName: String(target.inputName ?? ""),
+                sourceNodeId: String(target.sourceNodeId ?? ""), sourceClassType: String(target.sourceClassType ?? ""), targetClassType: String(target.targetClassType ?? ""),
+                sourceOutputIndex: typeof target.sourceOutputIndex === "number" && Number.isInteger(target.sourceOutputIndex) ? target.sourceOutputIndex : -1,
+            };
+        }) : [];
         const candidate: WorkflowFieldMapping = {
             ...raw,
             nodeId,
@@ -221,6 +240,7 @@ export function normalizeWorkflowFieldMappings(value: unknown, capability?: Runn
             ...(typeof required === "boolean" ? { required } : {}),
             ...(typeof randomEnabled === "boolean" ? { randomEnabled } : {}),
             sourceAutomatic,
+            ...(raw.emptyInputTargets !== undefined ? { emptyInputTargets } : {}),
             ...(Number.isFinite(sourceIndex) ? { sourceIndex } : {}),
             ...(Number.isFinite(imageOrder) ? { imageOrder } : {}),
         } as WorkflowFieldMapping;
@@ -265,8 +285,8 @@ export function mergeWorkflowFieldMappings(current: unknown, incoming: unknown, 
     const previousFields = normalizeWorkflowFieldMappings(current, capability);
     const nextFields = normalizeWorkflowFieldMappings(incoming, capability);
     const previousByKey = new Map(previousFields.map((field) => [`${field.nodeId}::${field.fieldName}`, field]));
-    const policyKeys: Array<keyof WorkflowFieldMapping> = ["label", "enabled", "randomEnabled", "source", "sourceAutomatic", "sourceFromUpstream", "sourceIndex", "imageOrder", "required", "bindPrompt"];
-    return nextFields.map((field) => {
+    const policyKeys: Array<keyof WorkflowFieldMapping> = ["label", "enabled", "randomEnabled", "source", "sourceAutomatic", "sourceFromUpstream", "sourceIndex", "imageOrder", "required", "bindPrompt", "emptyInputMode", "emptyInputTargets"];
+    const mergedFields = nextFields.map((field) => {
         const previous = previousByKey.get(`${field.nodeId}::${field.fieldName}`);
         if (!previous) return field;
         const merged = { ...field } as WorkflowFieldMapping;
@@ -287,6 +307,10 @@ export function mergeWorkflowFieldMappings(current: unknown, incoming: unknown, 
         if (field.safeToOverride === false) merged.enabled = false;
         return merged;
     });
+    const nextKeys = new Set(nextFields.map((field) => `${field.nodeId}::${field.fieldName}`));
+    // Keep explicit targets visible after their source disappears, so reparsing
+    // cannot silently erase an omission policy and start using default media.
+    return [...mergedFields, ...previousFields.filter((field) => field.emptyInputMode === "disconnect" && !nextKeys.has(`${field.nodeId}::${field.fieldName}`))];
 }
 
 function normalizeSavedWorkflowFields(workflow: { fields?: unknown; workflowJson?: Record<string, unknown> }, capability: RunningHubCapability) {

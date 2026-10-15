@@ -83,6 +83,26 @@ describe("bindBackendCanvasGenerationResult waits for delivery", () => {
         useCanvasStore.setState({ projects: [] });
     });
 
+    test.each(["text", "file"] as const)("a media workflow returning only %s binds its collection without waiting for a media asset", async (mediaType) => {
+        const identity = captured("user-a", 1);
+        const loading = canvasNode("node-1", { taskId: "task-1", status: "loading" });
+        const project = canvasProject("canvas-1", [loading]);
+        const nodesRef = { current: [loading] };
+        let binds = 0;
+        await bindBackendCanvasGenerationResult({
+            canvasId: project.id, nodeId: loading.id, nodesRef, setNodes: () => {}, isCurrent: () => true,
+            task: mediaTask({ resultJson: JSON.stringify({ outputs: [{ id: "output:0", outputIndex: 0, mediaType, text: "text result" }] }), outputs: [{ outputIndex: 0, mediaType, ...(mediaType === "text" ? { text: "text result" } : { resourceId: "attachment" }) }] }),
+            runtime: {
+                captureScope: () => identity, liveScope: () => identity,
+                hydrateOutputs: async () => undefined, persistDocument: async () => undefined,
+                sleep: async () => { throw new Error("non-media output waited for an asset"); },
+                bindOutput: async () => { binds++; return bindResponse("bind-collection", project, loading.id); },
+                adoptConfirmedProjection: async () => project,
+            },
+        });
+        expect(binds).toBe(1);
+    });
+
     test("waits for materialized output instead of surfacing a canvas conflict", async () => {
         const loading = canvasNode("node-1", { taskId: "task-1", status: "loading" });
         const project = canvasProject("canvas-1", [{ ...loading, metadata: { ...loading.metadata, status: "success", content: "/api/resources/res-1/file" } }], 4);

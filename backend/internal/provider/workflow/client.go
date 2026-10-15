@@ -102,8 +102,8 @@ func (c *Client) runRunningHub(ctx context.Context, input Input) (map[string]int
 	if webappID == "" && len(mappingWorkflow) == 0 && workflowID != "" {
 		if fetched, fetchErr := c.FetchWorkflowJSON(ctx, root, input.Config, workflowID); fetchErr == nil {
 			mappingWorkflow = fetched
-		} else if input.Config.OptionalImageMode != "retain" {
-			return nil, fmt.Errorf("无法读取工作流，未提供图片的动态槽位无法处理：%w", fetchErr)
+		} else if workflowInputGraphRequired(input.Config) {
+			return nil, fmt.Errorf("无法读取工作流，空素材槽位无法处理：%w", fetchErr)
 		}
 	}
 	workflowFields := input.Config.WorkflowFields
@@ -121,7 +121,7 @@ func (c *Client) runRunningHub(ctx context.Context, input Input) (map[string]int
 	var dynamicWorkflow bool
 	if webappID == "" {
 		var err error
-		mappingWorkflow, dynamicWorkflow, err = workflowWithProvidedImages(mappingWorkflow, workflowFields, len(input.ReferenceImages), input.Config.OptionalImageMode)
+		mappingWorkflow, dynamicWorkflow, err = workflowWithProvidedMedia(mappingWorkflow, workflowFields, map[string]int{"image": len(input.ReferenceImages), "video": len(input.ReferenceVideos), "audio": len(input.ReferenceAudios)}, input.Config.OptionalImageMode)
 		if err != nil {
 			return nil, err
 		}

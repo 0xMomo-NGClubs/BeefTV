@@ -9,6 +9,7 @@ import { buildGenerationTaskNodeResult } from "@/lib/canvas/canvas-generation-ta
 import { bindBackendCanvasGenerationResult } from "@/services/canvas-generation-consumer";
 import { materializedCanvasGenerationOutputs } from "@/services/canvas-generation-outputs";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
+import { fitNodeSize } from "@/lib/canvas/canvas-node-size";
 import type { GenerationOutput } from "@/lib/generation-outputs";
 import type { GenerationTask } from "@/services/api/task-center";
 
@@ -109,6 +110,25 @@ test("separate output additions and partial batch expansion avoid existing and m
     }
     expect(expanded.find((item) => item.id === first.id)?.position).toEqual({ x: 384, y: 400 });
     expect(addGenerationOutputNodes(expanded, node, outputs)).toBe(expanded);
+});
+
+test("decoded square and portrait images cannot grow over adjacent mixed output nodes", () => {
+    for (const [width, height] of [[1024, 1024], [768, 1344]]) {
+        const image = { ...outputs[0], width, height };
+        const text: GenerationOutput = { id: "output:5", outputIndex: 5, mediaType: "text", text: "文字结果" };
+        const withText = addGenerationOutputNodes([node], node, [text]);
+        const expanded = addGenerationOutputNodes(withText, node, [image, outputs[1], outputs[3]]);
+        const imageNode = expanded.find((item) => item.id === "output_task-mixed_0")!;
+        expect({ width: imageNode.width, height: imageNode.height }).toEqual(fitNodeSize(width, height));
+        const decoded = expanded.map((item) => item.id === imageNode.id ? { ...item, ...fitNodeSize(width, height) } : item);
+        for (let i = 0; i < decoded.length; i++) {
+            for (let j = i + 1; j < decoded.length; j++) {
+                const a = decoded[i], b = decoded[j];
+                expect(a.position.x < b.position.x + b.width && a.position.x + a.width > b.position.x
+                    && a.position.y < b.position.y + b.height && a.position.y + a.height > b.position.y).toBe(false);
+            }
+        }
+    }
 });
 
 test("slot labels and required input validation follow the saved media order", () => {

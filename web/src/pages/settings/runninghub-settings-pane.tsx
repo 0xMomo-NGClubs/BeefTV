@@ -17,6 +17,7 @@ import { usePluginStore } from "@/stores/use-plugin-store";
 import { flushModelConfig, getModelConfigPersistenceState, subscribeModelConfigPersistence } from "@/services/model-config-repository";
 import { observeRunningHubMetadataRequest } from "./runninghub-metadata-request";
 import { defaultWorkflowTextOutputNodeId, workflowTextOutputOptions } from "@/lib/workflow-text-outputs";
+import { workflowMediaInputPolicy } from "@/lib/workflow-image-inputs";
 import {
     normalizeRunningHubCapability,
     normalizeRunningHubWorkflowKind,
@@ -65,6 +66,10 @@ export function RunningHubSettingsPane() {
     const [pluginError, setPluginError] = useState("");
     const selected = runningHub.workflows.find((item) => item.workflowId.trim() === runningHub.workflowId.trim() && workflowKind(item) === runningHub.selectedKind);
     const selectedKey = selected ? workflowEntryKey(selected) : undefined;
+    const inputPolicyErrors = (selected?.fields || []).flatMap((field) => {
+        const policy = workflowMediaInputPolicy(selected, field);
+        return policy.error ? [`${field.nodeId}.${field.fieldName}：${policy.error}`] : [];
+    });
     const [draftId, setDraftId] = useState(selected?.workflowId || "");
     const [workflowText, setWorkflowText] = useState(selected?.workflowJson ? JSON.stringify(selected.workflowJson, null, 2) : "");
     const [kind, setKind] = useState<RunningHubWorkflowKind>(selected ? workflowKind(selected) : runningHub.selectedKind);
@@ -393,7 +398,7 @@ export function RunningHubSettingsPane() {
                         { label: "断开动态参考槽位（推荐）", value: "disconnect" },
                         { label: "保留工作流默认图片", value: "retain" },
                     ]} onChange={(value) => selected && persistWorkflow({ ...selected, optionalImageMode: value as "disconnect" | "retain" })} />
-                    <p className="mt-2 text-xs text-muted-foreground">仅断开直接连接 LoadImage 的动态 reference_images 端口，适用于 H3 提示词增强器等工作流。已开启、非必填的图片槽位未提供素材时不参与参考；固定输入和关闭映射的节点保留原值。修改只用于本次任务，不改动云端模板。</p>
+                    <p className="mt-2 text-xs text-muted-foreground">这是图片槽位的默认策略，仅自动识别 LoadImage 直接连接的动态 reference_images 端口。可在每个素材字段中单独选择保留默认素材或断开指定输入；视频、音频默认保留。关闭映射及必填槽位不自动断开，云端模板不会被改写。</p>
                 </Form.Item> : null}
                 {workspaceMode === "fields" && capability === "video" ? <div className="lg:col-span-12"><WorkflowVideoControlsEditor fields={selected?.fields || []} value={selected?.videoControls} disabled={!selected || !draftMatchesSelected} onChange={(videoControls) => selected && persistWorkflow({ ...selected, videoControls })} /></div> : null}
                 {workspaceMode === "fields" && capability === "text" ? <Form.Item label="主文字输出节点" className="mb-0 lg:col-span-12">
@@ -403,8 +408,9 @@ export function RunningHubSettingsPane() {
                 </Form.Item> : null}
                 {workspaceMode === "fields" && kind === "workflow" ? (
                     <>
+                        {inputPolicyErrors.length ? <div role="alert" className="space-y-1 text-xs text-destructive lg:col-span-12"><p>素材映射需要确认。请在对应字段的“没有素材时”配置中重新选择目标，或改为保留默认素材。</p>{inputPolicyErrors.map((error) => <p key={error}>{error}</p>)}</div> : null}
                         <div className="lg:col-span-12">
-                            <WorkflowGraphEditor workflowJson={selected?.workflowJson} fields={selected?.fields || []} disabled={!selected || !draftMatchesSelected} onChange={updateWorkflowFields} emptyDescription="请先拉取 RunningHub Workflow" />
+                            <WorkflowGraphEditor workflowJson={selected?.workflowJson} optionalImageMode={selected?.optionalImageMode} fields={selected?.fields || []} disabled={!selected || !draftMatchesSelected} onChange={updateWorkflowFields} emptyDescription="请先拉取 RunningHub Workflow" />
                         </div>
                         <details className="workflow-json-details lg:col-span-12">
                             <summary>查看或编辑 ComfyUI API JSON</summary>

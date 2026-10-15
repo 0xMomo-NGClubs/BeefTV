@@ -53,5 +53,6 @@ test("test and canvas views provide a refresh command without exposing it on reg
     expect(render({ ...node, metadata: { taskId: task.id, taskProvider: "openai" } })).not.toContain("刷新结果");
     const markup = renderToStaticMarkup(<App><WorkflowTestWorkbench provider="runninghub" {...identity} workflowKind="workflow" title="flow" fields={[{ nodeId: "20", fieldName: "image", source: "referenceImage", imageOrder: 6, enabled: true }]} /></App>);
     expect(markup).toContain("刷新结果");
-    expect(markup).toContain("默认图片也会参与参考");
+    expect(markup).toContain("使用工作流默认素材");
+    expect(markup).toContain("20.image");
 });

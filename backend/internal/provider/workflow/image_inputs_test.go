@@ -29,7 +29,7 @@ func TestProvidedImagesDisconnectDynamicPortsWithoutMutatingTemplate(t *testing.
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			graph, fields := sixReferenceWorkflow()
 			before, _ := json.Marshal(graph)
-			next, changed, err := workflowWithProvidedImages(graph, fields, count, "disconnect")
+			next, changed, err := workflowWithProvidedMedia(graph, fields, map[string]int{"image": count}, "disconnect")
 			if err != nil || changed != (count < 6) {
 				t.Fatalf("changed=%v err=%v", changed, err)
 			}
@@ -65,7 +65,7 @@ func TestProvidedImagesPreserveExplicitDefaultsFixedPortsAndMasks(t *testing.T) 
 	inputs := graph["21"].(map[string]interface{})["inputs"].(map[string]interface{})
 	inputs["first_frame"] = []any{"28", 0}
 	inputs["reference_images.reference_image_5"] = []any{"29", 1} // LoadImage's mask output.
-	next, _, err := workflowWithProvidedImages(graph, fields, 1, "")
+	next, _, err := workflowWithProvidedMedia(graph, fields, map[string]int{"image": 1}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,10 +78,10 @@ func TestProvidedImagesPreserveExplicitDefaultsFixedPortsAndMasks(t *testing.T) 
 	if result["reference_images.reference_image_4"] != nil {
 		t.Fatal("empty optional dynamic image still connected")
 	}
-	if _, changed, err := workflowWithProvidedImages(graph, fields, 1, "retain"); err != nil || changed {
+	if _, changed, err := workflowWithProvidedMedia(graph, fields, map[string]int{"image": 1}, "retain"); err != nil || changed {
 		t.Fatalf("retain defaults: changed=%v err=%v", changed, err)
 	}
-	if _, _, err := workflowWithProvidedImages(graph, fields, 1, "unknown"); err == nil {
+	if _, _, err := workflowWithProvidedMedia(graph, fields, map[string]int{"image": 1}, "unknown"); err == nil {
 		t.Fatal("unknown strategy accepted")
 	}
 }
@@ -147,7 +147,7 @@ func TestDynamicImagesDoNotChangePublishedAppSubmission(t *testing.T) {
 func TestZeroImagesOnlyDisconnectsOptionalDynamicInputs(t *testing.T) {
 	graph, fields := sixReferenceWorkflow()
 	fields[1].Required = false
-	next, changed, err := workflowWithProvidedImages(graph, fields, 0, "disconnect")
+	next, changed, err := workflowWithProvidedMedia(graph, fields, map[string]int{"image": 0}, "disconnect")
 	if err != nil || !changed {
 		t.Fatalf("changed=%v err=%v", changed, err)
 	}

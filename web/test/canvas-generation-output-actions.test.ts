@@ -35,6 +35,29 @@ test("result actions read canonical delivery through the shared task API and pre
     expect(requests).toBe(1);
 });
 
+test("text-only and mixed output actions never wait for a text asset ID", async () => {
+    const text: GenerationOutput = { id: "output:0", outputIndex: 0, mediaType: "text", text: "原始提示词\n第二段" };
+    for (const selected of [[text], [text, output]]) {
+        let reads = 0;
+        let waits = 0;
+        apiClient.defaults.adapter = async (config) => {
+            reads++;
+            return { data: { code: 0, data: { ...task, resultJson: JSON.stringify({ outputs: [text, output] }), outputs: [
+                { outputIndex: 0, mediaType: "text", text: text.text },
+                { outputIndex: 1, mediaType: "video", resourceId: "video", ...(reads >= 2 ? { materializedAssetId: "owned-video-asset" } : {}) },
+            ] } }, status: 200, statusText: "OK", headers: {}, config };
+        };
+        const resolved = await resolveCanvasGenerationOutputs(task.id, selected, captureUserScope(), undefined, { sleep: async () => {
+            waits++;
+            if (waits > 1) throw new Error("text entered the media materialization loop");
+        } });
+        expect(resolved[0].text).toBe(text.text);
+        expect(resolved[0].assetId).toBeUndefined();
+        expect(waits).toBe(selected.length === 1 ? 0 : 1);
+        expect(reads).toBe(selected.length === 1 ? 1 : 2);
+    }
+});
+
 test("switching accounts A to B to A abandons the pending result action", async () => {
     const captured = captureUserScope();
     apiClient.defaults.adapter = async (config) => {

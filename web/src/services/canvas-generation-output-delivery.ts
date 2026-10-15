@@ -45,7 +45,10 @@ function taskOutput(task: GenerationTask, index: number): GenerationTaskOutput |
 }
 
 export function generationTaskOutputMaterialized(task: GenerationTask, index: number) {
-    return Boolean(taskOutput(task, index)?.materializedAssetId);
+    const output = taskOutput(task, index);
+    if (output?.mediaType === "text") return Boolean(output.text?.trim() && !output.materializationErrorCode);
+    if (output?.mediaType === "file") return Boolean(output.resourceId && !output.materializationErrorCode);
+    return Boolean(output?.materializedAssetId);
 }
 
 // Primary binding and expanded results share the same delivery deadline and

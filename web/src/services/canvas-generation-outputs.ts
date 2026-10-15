@@ -35,14 +35,14 @@ export async function resolveCanvasGenerationOutputs(taskId: string, selected: G
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     if (task.id !== taskId) throw new Error("生成任务不匹配，请刷新结果后重试");
     if (task.status !== "succeeded") throw new Error("生成任务尚未完成，请稍后重试");
-    const selectedMedia = selected.filter((item) => item.mediaType !== "file");
+    const selectedMedia = selected.filter((item) => item.mediaType !== "file" && item.mediaType !== "text");
     const outputs = parseBackendGenerationResult(task).outputs || [];
     for (const selection of selectedMedia) {
         const output = outputs.find((item) => item.outputIndex === selection.outputIndex);
         if (!output || output.mediaType !== selection.mediaType || output.storageKey !== selection.storageKey) throw new Error("生成输出已发生变化，请刷新结果后重试");
     }
     const now = runtime.now ?? Date.now;
-    task = await waitForMaterializedGenerationOutputs({
+    if (selectedMedia.length) task = await waitForMaterializedGenerationOutputs({
         task, outputIndices: selectedMedia.map((item) => item.outputIndex), signal, expectedScope,
         isCurrent: () => !signal?.aborted, liveScope: captureUserScope,
         refreshTask: queryGenerationTask, sleep: runtime.sleep ?? sleepWithSignal,

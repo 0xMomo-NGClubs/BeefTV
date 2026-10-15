@@ -63,7 +63,13 @@ Wails 和浏览器开发模式共用同一套 `127.0.0.1` HTTP 合同。路由�
 
 带参考图片、视频、音频或蒙版的任务先保存为本地资源，后端通过 owner 归属校验读取字节，再调用 RunningHub `/openapi/v2/media/upload/binary`（multipart `file`、`Authorization: Bearer <apiKey>`）。上传必须返回业务码 `0` 和有效的 `data.fileName`；上传失败不提交工作流。返回的 `fileName` 按字段槽位填入 `nodeInfoList[].fieldValue`，不使用 `download_url` 替代 ComfyUI 加载节点路径。Workflow 提交至 `/task/openapi/create`，App 提交至 `/task/openapi/ai-app/run`；上传、参数查询、提交和轮询共用配置中的 `apiKey`。恢复已有上游任务只查询原任务，不重新上传或创建。上传资源用于任务输入，不作为永久云端资源库。
 
-Workflow 的 `config.optionalImageMode` 为 `disconnect`（默认）或 `retain`。`disconnect` 只删除未提供图片的非必填、已启用映射对应的动态 `reference_images.reference_image_N` 连线，且上游必须直接来自 `LoadImage` 的图片输出（端口 0）；固定端口、禁用映射、必填图片、蒙版和独立输出不删除。发生删除时以独立副本的完整 JSON 字符串设置请求体 `workflow`，由官方高级创建接口覆盖模板拓扑；`nodeInfoList` 继续覆盖本次上传路径、提示词及其他字段。`retain` 不发送拓扑修改，空槽位使用模板默认值。缺少完整 JSON 时先读取工作流，动态策略下读取失败则中止，不能静默回退为包含默认图片的任务。App 继续只提交公开参数。刷新和恢复不执行此逻辑，也不创建新任务。
+Workflow 的 `config.optionalImageMode` 为 `disconnect`（默认）或 `retain`，作为图片槽位的默认策略。`disconnect` 只自动删除未提供图片的非必填、已启用映射对应的动态 `reference_images.reference_image_N` 连线，且上游必须直接来自 `LoadImage` 的图片输出（端口 0）。其他图片结构及视频、音频默认保留素材。
+
+每个素材字段可保存 `emptyInputMode`：`inherit`（默认）、`retain` 或 `disconnect`。`retain` 强制保留该槽位默认素材；`disconnect` 必须通过 `emptyInputTargets[]` 明确指定要断开的直接连接输入，适用于图片、视频和音频，优先于全局图片策略。每个目标包含 `nodeId`、`inputName`、`sourceNodeId`、`sourceOutputIndex`（当前只支持 0）、`sourceClassType`、`targetClassType`。提交前校验节点类型、源标量字段和实际连线身份；重新拉取保留映射，源或目标消失、节点类型或连线改变时标记失效并拒绝新任务，不能悄悄重绑定。目标是否允许省略由用户根据上游节点合同确认，工作流的必需输入错误由上游返回。
+
+必填项、禁用映射、蒙版不自动断开。仅删除所选目标连线，不删除加载节点、中间节点或其他分支；同一个加载节点存在多个素材字段时拒绝对缺失输入作断开处理，避免误断仍有素材的分支。测试画布与正式画布共用处理计划，显示本次填入、断开和保留默认的槽位。当前不自动穿过缩放、拼接、合并等节点寻找最终可省略输入。
+
+发生删除时以独立副本的完整 JSON 字符串设置请求体 `workflow`，由官方高级创建接口覆盖模板拓扑；`nodeInfoList` 继续覆盖本次上传路径、提示词及其他字段。缺少完整 JSON 时先读取工作流，需处理空槽位而读取失败则中止，不能静默使用默认素材。App 继续只提交公开参数；普通模型、刷新和恢复不执行图转换，也不创建新任务。
 
 工作流任务的 `resultJson.outputs` 为按上游顺序保留的完整产物数组，每项包含 `id`（`output:<index>`）、`outputIndex`、`mediaType`（`text`、`image`、`video`、`audio` 或 `file`）；仅在上游提供时保留 `sourceNodeId`，不从文件顺序推断节点。媒体与文件产物逐项写入当前 owner 的资源存储，结果中使用本地资源 URL、`storageKey` 和 `resourceId`。文字产物以 `text` 保存在任务结果及交付记录中，不要求媒体资源或素材 ID；纯文本字段及 UTF-8 TXT 文件统一为文字产物，JSON 等其他附件保留为文件。主输出通过 `primaryOutputId` 引用，不重复保存其内联副本。原有普通模型结果仍使用对应的 `text`、`images`、`video` 或 `audio` 合同。
 

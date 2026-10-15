@@ -39,7 +39,13 @@ export function addGenerationOutputNodes(nodes: CanvasNodeData[], source: Canvas
         if (added.some((item) => item.id === id)) continue;
         const type = output.mediaType === "text" ? CanvasNodeType.Text : output.mediaType === "image" ? CanvasNodeType.Image : output.mediaType === "audio" ? CanvasNodeType.Audio : CanvasNodeType.Video;
         const bounds = NODE_DEFAULT_SIZE[type];
-        const size = type === CanvasNodeType.Audio || type === CanvasNodeType.Text ? bounds : fitNodeSize(output.width || bounds.width, output.height || bounds.height, bounds.width, bounds.height);
+        const width = output.width || bounds.width;
+        const height = output.height || bounds.height;
+        // ImageContent uses the default fit after decoding. Reserve that same
+        // size now so image hydration cannot expand over the following output.
+        const size = type === CanvasNodeType.Audio || type === CanvasNodeType.Text ? bounds
+            : type === CanvasNodeType.Image ? fitNodeSize(width, height)
+                : fitNodeSize(width, height, bounds.width, bounds.height);
         added.push({
             id, type, ...size, title: `${source.title || "工作流"} · 输出 ${output.outputIndex + 1}`,
             position: findAvailableGenerationGroupPosition([...current, ...added], {

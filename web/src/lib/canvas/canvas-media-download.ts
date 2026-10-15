@@ -27,6 +27,7 @@ const MIME_EXTENSIONS: Record<string, string> = {
     "audio/x-pn-wav": "wav",
     "audio/aac": "aac",
     "audio/flac": "flac",
+    "audio/x-flac": "flac",
     "audio/ogg": "ogg",
     "audio/opus": "opus",
     "audio/webm": "webm",

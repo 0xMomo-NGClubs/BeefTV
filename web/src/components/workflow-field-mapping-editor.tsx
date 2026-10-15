@@ -9,6 +9,7 @@ import { ListFilter, ListPlus, Power, PowerOff } from "lucide-react";
 import type { WorkflowFieldMapping } from "@/stores/use-config-store";
 import { workflowFieldChoiceValues, workflowFieldConfigurationError, workflowFieldNumberBounds, workflowFieldPresetOptions } from "@/lib/model-capabilities";
 import { EmptyState } from "@/components/ui/product/empty-state";
+import { WorkflowEmptyInputEditor } from "@/components/workflow-empty-input-editor";
 
 const sourceOptions = [
     { label: "保留工作流默认值", value: "" },
@@ -52,9 +53,11 @@ type WorkflowFieldMappingEditorProps = {
     fields: WorkflowFieldMapping[];
     onChange: (fields: WorkflowFieldMapping[]) => void;
     disabled?: boolean;
+    workflowJson?: Record<string, unknown>;
+    optionalImageMode?: "disconnect" | "retain";
 };
 
-export function WorkflowFieldMappingEditor({ fields, onChange, disabled = false }: WorkflowFieldMappingEditorProps) {
+export function WorkflowFieldMappingEditor({ fields, onChange, disabled = false, workflowJson, optionalImageMode }: WorkflowFieldMappingEditorProps) {
     const [showOnlyEnabled, setShowOnlyEnabled] = useState(false);
     const enabledCount = useMemo(() => fields.filter((field) => field.enabled !== false).length, [fields]);
     const controllableFields = useMemo(() => fields.filter((field) => field.safeToOverride !== false), [fields]);
@@ -195,6 +198,7 @@ export function WorkflowFieldMappingEditor({ fields, onChange, disabled = false 
                                     缺失时阻止生成
                                     <Switch checked={field.required === true} disabled={fieldDisabled || !source} onChange={(required) => updateField(index, { required })} />
                                 </label>
+                                {workflowJson ? <WorkflowEmptyInputEditor field={field} workflowJson={workflowJson} optionalImageMode={optionalImageMode} disabled={fieldDisabled} onChange={(patch) => updateField(index, patch)} /> : null}
                                 {fieldType === "NUMBER" ? (
                                     <label className="flex items-center justify-between gap-3 text-xs text-foreground/60">
                                         每次随机数字

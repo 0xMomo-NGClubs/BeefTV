@@ -35,9 +35,22 @@ type Field struct {
 	SourceFromUpstream bool   `json:"sourceFromUpstream,omitempty"`
 	Required           bool   `json:"required,omitempty"`
 	// nil 兼容旧配置；true 表示来源由字段名推断，false 表示用户在映射面板明确选择。
-	SourceAutomatic *bool `json:"sourceAutomatic,omitempty"`
+	SourceAutomatic   *bool         `json:"sourceAutomatic,omitempty"`
+	EmptyInputMode    string        `json:"emptyInputMode,omitempty"`
+	EmptyInputTargets []InputTarget `json:"emptyInputTargets,omitempty"`
 	// 仅在本次反序列化期间保留，用于区分旧数据缺字段与用户明确选择“保留默认值”。
 	sourceConfigured bool
+}
+
+// InputTarget pins a direct edge and both node types so a refreshed graph cannot
+// silently redirect an empty-slot policy to a different input.
+type InputTarget struct {
+	NodeID            string `json:"nodeId"`
+	InputName         string `json:"inputName"`
+	SourceNodeID      string `json:"sourceNodeId"`
+	SourceOutputIndex int    `json:"sourceOutputIndex"`
+	SourceClassType   string `json:"sourceClassType"`
+	TargetClassType   string `json:"targetClassType"`
 }
 
 func (f Field) SourceConfigured() bool { return f.sourceConfigured }

@@ -1,9 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { disconnectedWorkflowImageFields, workflowEmptyImageLabel } from "@/lib/workflow-image-inputs";
+import { workflowMediaInputPolicy } from "@/lib/workflow-image-inputs";
 import { prepareBackendGenerationTask } from "@/services/api/generation-task";
 import { defaultConfig, normalizeConfigSnapshot, type RunningHubWorkflow } from "@/stores/use-config-store";
 import { usePluginStore } from "@/stores/use-plugin-store";
-import { workflowFieldKey } from "@/lib/model-capabilities";
 
 afterEach(() => usePluginStore.getState().setRuntimeStatuses({}));
 
@@ -22,14 +21,13 @@ const workflow: RunningHubWorkflow = {
 
 test("empty dynamic image slots describe the actual omission policy; fixed, required and disabled slots keep defaults", () => {
     const optional = workflow.fields![1];
-    const disconnected = disconnectedWorkflowImageFields(workflow);
-    expect(disconnected.has(workflowFieldKey(optional))).toBe(true);
-    expect(workflowEmptyImageLabel(optional, disconnected)).toBe("本次不参与参考");
-    expect(disconnected.has(workflowFieldKey(workflow.fields![0]))).toBe(false);
-    expect(disconnectedWorkflowImageFields({ ...workflow, optionalImageMode: "retain" }).size).toBe(0);
-    expect(disconnectedWorkflowImageFields({ ...workflow, kind: "app" }).size).toBe(0);
-    expect(disconnectedWorkflowImageFields({ ...workflow, fields: [{ ...optional, enabled: false }] }).size).toBe(0);
-    expect(disconnectedWorkflowImageFields({ ...workflow, workflowJson: { ...workflow.workflowJson, "21": { inputs: { image: ["25", 0], "reference_images.reference_image_1": ["25", 1] } } } }).size).toBe(0);
+    expect(workflowMediaInputPolicy(workflow, optional).mode).toBe("disconnect");
+    expect(workflowMediaInputPolicy(workflow, optional).targets[0].inputName).toBe("reference_images.reference_image_1");
+    expect(workflowMediaInputPolicy(workflow, workflow.fields![0]).mode).toBe("retain");
+    expect(workflowMediaInputPolicy({ ...workflow, optionalImageMode: "retain" }, optional).targets).toHaveLength(0);
+    expect(workflowMediaInputPolicy({ ...workflow, kind: "app" }, optional).targets).toHaveLength(0);
+    expect(workflowMediaInputPolicy(workflow, { ...optional, enabled: false }).targets).toHaveLength(0);
+    expect(workflowMediaInputPolicy({ ...workflow, workflowJson: { ...workflow.workflowJson, "21": { inputs: { image: ["25", 0], "reference_images.reference_image_1": ["25", 1] } } } }, optional).targets).toHaveLength(0);
 });
 
 test("image strategy persists through config normalization and reaches the backend for Workflow only", async () => {

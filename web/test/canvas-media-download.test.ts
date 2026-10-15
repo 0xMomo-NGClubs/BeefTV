@@ -19,7 +19,7 @@ function mediaNode(overrides: Partial<CanvasNodeData> = {}): CanvasNodeData {
 
 describe("canvas media download", () => {
     test("素材库 MIME 别名经过文件名清理后仍保留真实格式后缀", () => {
-        for (const [mime, extension] of [["video/quicktime", "mov"], ["image/svg+xml", "svg"], ["audio/x-wav", "wav"], ["audio/mpeg", "mp3"], ["audio/mp4", "m4a"], ["image/jpeg; charset=utf-8", "jpg"]]) {
+        for (const [mime, extension] of [["video/quicktime", "mov"], ["image/svg+xml", "svg"], ["audio/x-wav", "wav"], ["audio/mpeg", "mp3"], ["audio/mp4", "m4a"], ["audio/x-flac", "flac"], ["image/jpeg; charset=utf-8", "jpg"]]) {
             const name = sanitizeDownloadFileName(`中文素材.${mediaFileExtension(mime)}`);
             expect(name).toBe(`中文素材.${extension}`);
         }

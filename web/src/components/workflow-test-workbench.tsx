@@ -19,7 +19,7 @@ import { getActiveUserScopeEpoch, subscribeUserScope } from "@/lib/user-scope";
 import { captureUserScope } from "@/lib/user-scope-guard";
 import { useConfigStore, type AiConfig, type RunningHubCapability, type WorkflowFieldMapping } from "@/stores/use-config-store";
 import { workflowPromptTargetLabel, workflowPromptTargets } from "@/lib/workflow-prompt-mapping";
-import { disconnectedWorkflowImageFields } from "@/lib/workflow-image-inputs";
+import { WorkflowInputPlan } from "@/components/workflow-input-plan";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -81,7 +81,6 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
     const parameterFields = useMemo(() => uniqueParameterFields(activeFields), [activeFields]);
     const promptTarget = workflowPromptTargetLabel(fields);
     const selectedWorkflow = config.runningHub.workflows.find((item) => item.workflowId === workflowId && (item.kind === "app" ? "app" : "workflow") === workflowKind);
-    const disconnectedImages = disconnectedWorkflowImageFields(selectedWorkflow, fields);
     const visibleMediaKinds = (Object.keys(slots) as MediaKind[]).filter((kind) => slots[kind] > 0);
     const resultOutputs = result?.outputs || [];
     const initialOutput = capability === "text" ? primaryTextGenerationOutput(resultOutputs, result?.primaryOutputId, result?.outputParameterWarning) : primaryGenerationOutput(resultOutputs, capability);
@@ -333,7 +332,7 @@ export function WorkflowTestWorkbench({ provider, workflowId, workflowKind = "wo
                             onMove={(point) => setPositions((current) => ({ ...current, [kind]: point }))}
                         >
                             <MediaPicker kind={kind} limit={slots[kind]} files={files[kind]} maskIndex={kind === "image" && maskEnabled ? imageReferenceCount : undefined} onChange={(selected) => replaceFiles(kind, selected)} />
-                            {kind === "image" && files.image.length < imageReferenceCount ? <p className="mt-2 text-xs text-muted-foreground">已选 {Math.min(files.image.length, imageReferenceCount)} / {imageReferenceCount} 张。{disconnectedImages.size ? "未提供的动态参考槽位将断开；固定输入保留工作流默认图片。" : "未提供的槽位保留工作流原图片；节点仍有连线时，默认图片也会参与参考。"}</p> : null}
+                            <div className="mt-2 text-muted-foreground"><WorkflowInputPlan workflow={selectedWorkflow} fields={fields} kind={kind} counts={{ image: Math.min(files.image.length, imageReferenceCount), video: files.video.length, audio: files.audio.length }} /></div>
                         </WorkflowNode>
                     ))}
 
